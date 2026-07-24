@@ -8,6 +8,7 @@ Jira ticket
    ▼  /ticket-plan     → .dev/plans/<KEY>.md      design + tasks + test strategy, NO code
    │                      └─ plan gate: subagent challenges the plan before any code
    ▼  /ticket-build    → ONE branch per ticket, ONE commit per task, green after each
+   │                      └─ stops for your approval after every task before committing
    │        ▲
    │        │ fix mode: works the review findings, fills the Resolution ledger
    ▼        │
@@ -25,7 +26,7 @@ Jira ticket
 
 3. **The fix loop is explicit.** `/ticket-review` writes findings with IDs and empty `Resolution:` lines. `/ticket-build` in fix mode works those findings and fills the ledger (`fixed <sha>` / `waived — <reason>`). `/ticket-mr` refuses to open until every blocker's ledger line is filled — a mechanical check, not a promise.
 
-4. **One branch per ticket, one commit per task.** Task granularity lives in commit history (bisectable, reviewable commit-by-commit in GitLab), not in a pile of micro-branches. If a ticket feels like it needs per-task branches, split the ticket in Jira instead.
+4. **One branch per ticket, one commit per task — and one approval per task.** Task granularity lives in commit history (bisectable, reviewable commit-by-commit in GitLab), not in a pile of micro-branches. `ticket-build` never chains tasks or commits automatically: it implements one task, gets it green, presents the change, and stops for your explicit approval before committing and moving on (the same gate applies per finding in fix mode). Say "just finish the rest" to let it run unattended. If a ticket feels like it needs per-task branches, split the ticket in Jira instead.
 
 The persona labels ("architect", "tester") are deliberately absent: what carries the weight is explicit criteria and "don't do the next phase yet" boundaries, not role names.
 
@@ -44,6 +45,7 @@ Invoke by intent in Claude Code: "plan PROJ-123", "implement PROJ-123", "review 
 ## Human gates (deliberate)
 
 - `/ticket-plan` interrogates the ticket for gaps (scope edges, unhappy paths, non-functionals, dependencies...) and runs a **clarification gate**: all open questions go to you in one batched round before any design. No assumption is made without your answer or your explicit "you decide", and every resolution is recorded in the plan's Clarifications section. The same rule carries into `/ticket-build`: mid-build ambiguity stops and asks, it never guesses.
+- `/ticket-build` works one task at a time: it implements a task, runs it green, presents the change, and stops for your explicit approval before committing and starting the next — no commit lands without your go-ahead. The same per-item gate applies in fix mode. Tell it to "just finish the rest" to opt into unattended execution.
 - Waiving a blocking finding requires the user's explicit decision, recorded with a reason, and is surfaced verbatim in the MR description.
 - `/ticket-mr` never merges and never marks the ticket Done. Acceptance is always human.
 
