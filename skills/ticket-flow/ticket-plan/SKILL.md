@@ -43,7 +43,16 @@ An agent that has already started coding rationalizes its own design. Planning a
 
 8. **Test strategy.** For each risky path, say what to test and at what level (unit / integration). Name the concrete command (`./gradlew test`, or the specific module task like `./gradlew :rombox-gym:test`). Define what "done" means beyond "it compiles".
 
-9. **Write the artifact** to `.dev/plans/<KEY>.md` using the template below. `.dev/` is versioned: it will get its first commit when `ticket-build` creates the branch, so the plan travels with the code and a fresh session on any machine can read it. Until the branch exists it lives in the working tree — that's fine.
+9. **Write the artifact** to `.dev/plans/<KEY>.md` using the template below, then **make sure `.dev/` is git-excluded before anything in this workflow touches git.** Run `git check-ignore -q .dev`; if it doesn't match, append to the target repo's `.git/info/exclude`:
+
+   ```
+   # ticket-flow workflow artifacts (local only)
+   .dev/
+   ```
+
+   `.git/info/exclude` rather than `.gitignore` because that file is itself per-clone and never committed — the workflow leaves no trace in the team's repo, and `.dev/` is invisible to `git add -A`, to reviewers, and to the MR diff. Doing this now, before a branch exists, is what keeps every later commit clean.
+
+   The consequence is worth stating: the artifacts live only in this working tree. A fresh session **on this machine** can pick up mid-workflow by reading them; a different machine or a different clone cannot — there, re-run `ticket-plan` or copy the file across by hand.
 
 10. **Gate the plan before handing it off.** Spawn a subagent (the Task tool in Claude Code) whose prompt contains *only* the raw ticket text and the plan file — none of this conversation — and ask it exactly four questions:
    - For each acceptance criterion, which part of the design satisfies it? Name any criterion with no answer.
@@ -94,4 +103,4 @@ Risky assumptions: <...>
 
 ## Boundaries
 
-Do not create a branch, write production code, or touch Jira status here. Do not design past an unanswered blocking question — waiting on the user is the correct behavior in this phase, not a failure to make progress. End by pointing the user at `ticket-build` once the plan looks right — and remind them the plan is editable; a plan they disagree with is cheaper to fix now than after implementation.
+Do not create a branch, write production code, or touch Jira status here. Never stage, commit, or `git add -f` anything under `.dev/` — it is a local scratch folder in every phase of this workflow, and force-adding it defeats the exclude entry step 9 just wrote. Do not design past an unanswered blocking question — waiting on the user is the correct behavior in this phase, not a failure to make progress. End by pointing the user at `ticket-build` once the plan looks right — and remind them the plan is editable; a plan they disagree with is cheaper to fix now than after implementation.

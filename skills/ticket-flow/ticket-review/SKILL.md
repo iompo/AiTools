@@ -55,7 +55,7 @@ Context: subagent | fresh-session | same-session (weaker)
 - [ ] <criterion> — NOT addressed → also listed as a Blocking finding
 ```
 
-Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and `ticket-mr` checks as its precondition. Commit the review file on the branch so the ledger travels with the code.
+Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and `ticket-mr` checks as its precondition. The review file stays local and uncommitted: both phases read it from the working tree, and human reviewers learn about waived findings from the MR description, which `ticket-mr` already requires to quote them verbatim. Findings from an automated review don't belong in the team's history.
 
 ## Boundaries
 

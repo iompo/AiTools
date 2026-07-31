@@ -12,13 +12,13 @@ Package the finished work into a GitLab merge request that a human can review qu
 Before composing anything, confirm mechanically:
 - Tests are green (`./gradlew test`).
 - Every finding under **Blocking** in `.dev/reviews/<KEY>.md` has a non-empty `Resolution:` line (`fixed <sha>` or `waived — <reason>`). An empty Resolution on a blocker means the fix loop isn't done — say so and stop; don't accept a verbal "it's handled" in place of the ledger.
-- If no review file exists at all, flag that the ticket is skipping review and ask the user to confirm before proceeding.
+- If no review file exists at all, say so and ask the user to confirm before proceeding. The file is local and uncommitted, so an absent one can mean either "never reviewed" or "reviewed in a different clone" — ask which, rather than guessing; a review that happened elsewhere is a ledger you cannot check, and skipping review entirely is the user's call to make explicitly.
 
 ## Steps
 
 1. **Title.** Lead with the Jira key so GitLab's Jira integration links the MR to the issue: `PROJ-123: <concise change summary>`.
 
-2. **Description.** Fill this template from the plan and review artifacts — don't make the human reconstruct the context that already exists in `.dev/`:
+2. **Description.** Fill this template from the plan and review artifacts. Those files never reach the MR — they're local to the machine the work happened on — so this description is the *only* channel through which their context reaches a reviewer. Anything a human needs in order to review well has to be restated here; don't gesture at an artifact they can't open:
 
 ```markdown
 ## What & why
@@ -38,11 +38,9 @@ Closes <Jira link>   <!-- or "Relates to" if it's partial -->
 - <any waived blocking findings, verbatim with their reasons — human reviewers must see what was consciously skipped>
 ```
 
-3. **Decide `.dev/` disposition.** The plan and review files were committed on the branch so the workflow could span sessions — now they're about to enter the MR diff. Ask the user which convention their team uses (once per project, then remember it in the project's CLAUDE.md): **keep** them in the repo as living documentation, or **remove** them with a final `PROJ-123: drop workflow artifacts` commit before pushing. Either is fine; silently surprising human reviewers with review-bot findings in the diff is not. State the choice in the MR description.
+3. **Push and open.** Push the branch. Open the MR via the GitLab connector if available, or `glab mr create --fill --description-file <file>` if `glab` is installed; otherwise present the finished title + description for the user to paste. Set the target to the default branch unless the user says otherwise.
 
-4. **Push and open.** Push the branch. Open the MR via the GitLab connector if available, or `glab mr create --fill --description-file <file>` if `glab` is installed; otherwise present the finished title + description for the user to paste. Set the target to the default branch unless the user says otherwise.
-
-5. **Jira linkage.** The key in the branch, commits, and MR title is what drives GitLab↔Jira linking, so double-check it's present and correctly cased. Only add a smart-commit transition (e.g. moving the issue to a review state) if the user asks — silent status changes surprise teammates.
+4. **Jira linkage.** The key in the branch, commits, and MR title is what drives GitLab↔Jira linking, so double-check it's present and correctly cased. Only add a smart-commit transition (e.g. moving the issue to a review state) if the user asks — silent status changes surprise teammates.
 
 ## Boundaries
 

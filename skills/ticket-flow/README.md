@@ -2,6 +2,8 @@
 
 A minimal, spec-driven workflow for taking a **Jira ticket → GitLab merge request** with Claude Code, tuned for a Gradle codebase. Four skills, one per phase, each producing an artifact the next phase reads.
 
+`.dev/` below is local scratch — git-excluded on first use, never committed.
+
 ```
 Jira ticket
    │
@@ -20,7 +22,7 @@ Jira ticket
 
 ## The ideas that make it work
 
-1. **Artifacts are the coordination mechanism.** Phases hand off via durable files, not "now continue". The plan and review files are **committed on the feature branch** (plan is the branch's first commit), so any session on any machine can pick up mid-workflow. At MR time you choose once per project whether `.dev/` stays in the repo or gets dropped in a final commit.
+1. **Artifacts are the coordination mechanism, and they stay on your machine.** Phases hand off via durable files, not "now continue" — so a fresh session can pick up mid-workflow by reading them. `.dev/` is **never committed**: `/ticket-plan` adds it to the repo's `.git/info/exclude` on first use, which is itself an uncommitted file, so your planning notes and the review bot's findings leave no trace in the team's repo and the MR diff contains only code. The tradeoff is honest and deliberate: continuity spans sessions on this clone, not across machines.
 
 2. **Adversarial passes are context-restricted, and there are two of them.** The plan gate (inside `/ticket-plan`) and the code review (`/ticket-review`) both run as subagents that see only the artifacts — never the reasoning that produced them. The plan gate exists because a design flaw caught before code costs a paragraph; caught after, a rewrite.
 
@@ -52,6 +54,7 @@ Invoke by intent in Claude Code: "plan PROJ-123", "implement PROJ-123", "review 
 ## Where to bend it
 
 - **Small tickets** (one-line fix): skip straight to `/ticket-build` with an inline plan and skip the plan gate. Ceremony should match risk.
+- **Share the artifacts instead of keeping them local:** if your team wants the plan and review in the repo as living documentation — or you hand tickets between machines — drop the `.git/info/exclude` entry and commit the files explicitly. Accept that review findings then show up in the MR diff, which surprises human reviewers unless the team expects it.
 - **Jenkins as source of truth:** the "green" checks name local Gradle commands; repoint them at the pipeline if that's your gate.
 - **Auto-transition Jira status:** off by default; add a smart-commit transition in `/ticket-mr` if your team uses them.
 
