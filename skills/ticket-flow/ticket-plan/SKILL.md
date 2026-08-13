@@ -28,6 +28,8 @@ An agent that has already started coding rationalizes its own design. Planning a
 
 4. **Read the code, don't imagine it.** Explore the affected modules, existing patterns, and neighbouring tests. Note the files and components the change will touch. A plan that names real files and existing conventions is worth ten that describe an idealized codebase. This step also filters the question list from step 3: anything the codebase itself answers (an existing convention, a config that already dictates the choice) gets answered here and noted — never forwarded to the user as busywork.
 
+   **This includes local state, not just source.** If the change reads or writes anything that lives outside version control — an untracked config or settings file, local credentials, a database, a running container, fixture data — *look at the actual artifact on this machine* before designing against an imagined one. Read its **shape, not its contents**: the key names, the mount points, the table names, with values redacted as you print them, since untracked config is exactly where secrets live. Designing against an imagined config file is how a plan ends up instructing the developer to run a command that destroys their credentials, and it is a common source of a clarification that has to be reversed mid-build.
+
 5. **Clarification gate — ask, don't assume.** This is a hard rule for this phase: **do not resolve any remaining ambiguity by picking an interpretation yourself.** Collect everything still open from steps 2-4 into a single structured question round and put it to the user before designing anything:
    - Number each question, state why it matters (what changes in the design depending on the answer), and — where you can — offer the plausible options so the user can answer fast.
    - Batch them: one round of questions beats a drip-feed. Only ask a second round if an answer genuinely opens a new question.
@@ -41,9 +43,21 @@ An agent that has already started coding rationalizes its own design. Planning a
 
 7. **Break into ordered tasks** with dependencies. Each task should be independently verifiable and small enough to review. Order them so the branch stays green after each.
 
-8. **Test strategy.** For each risky path, say what to test and at what level (unit / integration). Name the concrete command (`./gradlew test`, or the specific module task like `./gradlew :rombox-gym:test`). Define what "done" means beyond "it compiles".
+   Two rules that keep the task list honest:
+   - **No standalone "write the tests" task.** Test work belongs to the task whose code it covers, because `ticket-build` writes tests alongside the code. A bundled TASK-N "Tests" guarantees the two phases contradict each other and that tests get written last, or not at all.
+   - **If two tasks cannot be split without an inconsistent intermediate state, make them one task.** Splitting a change whose halves only make sense together produces a commit that is broken by construction — sometimes a transient instance of the very bug being fixed.
+
+8. **Test strategy, and mark what can actually be proven.** For each risky path, say what to test and at what level (unit / integration). Name the concrete command this project uses, scoped as narrowly as still covers the change — a single module or suite beats the whole build when the toolchain allows it. Name the build/compile command too, separately: in many toolchains a green suite does not prove the project compiles for shipping. Define what "done" means beyond "it compiles".
+
+   Then tag **every acceptance criterion** as one of:
+   - **demonstrable-by-test** — an automated check can prove it; name the test or command.
+   - **requires-manual-run** — only a human executing the app can prove it (needs Docker, a licence, a dataset, real hardware, a GUI). Say exactly what the person has to do.
+
+   Be honest about the second category rather than hiding it behind a test that merely *approximates* the criterion. This tag is what stops an undemonstrated fix from travelling all the way to the merge request: `ticket-build` may not report completion while a `requires-manual-run` criterion is unexecuted. If the criterion the whole ticket exists for lands in that category, say so in the chat summary — it is the most important thing the user needs to know.
 
 9. **Write the artifact** to `.dev/plans/<KEY>.md` using the template below, then **make sure `.dev/` is git-excluded before anything in this workflow touches git.** Run `git check-ignore -q .dev`; if it doesn't match, append to the target repo's `.git/info/exclude`:
+
+   **If the harness is in plan mode**, it may restrict edits to its own plan file, so `.dev/plans/<KEY>.md` cannot be written yet. Write the plan to the harness path, and the moment the plan is approved and edits are permitted, write the same content to `.dev/plans/<KEY>.md` — that is the path `ticket-build` and `ticket-review` read. Do not consider this phase finished until that file exists; a plan only the harness can see is invisible to every later phase.
 
    ```
    # ticket-flow workflow artifacts (local only)
@@ -54,13 +68,18 @@ An agent that has already started coding rationalizes its own design. Planning a
 
    The consequence is worth stating: the artifacts live only in this working tree. A fresh session **on this machine** can pick up mid-workflow by reading them; a different machine or a different clone cannot — there, re-run `ticket-plan` or copy the file across by hand.
 
-10. **Gate the plan before handing it off.** Spawn a subagent (the Task tool in Claude Code) whose prompt contains *only* the raw ticket text and the plan file — none of this conversation — and ask it exactly four questions:
-   - For each acceptance criterion, which part of the design satisfies it? Name any criterion with no answer.
-   - What is the most likely failure mode of the chosen approach?
-   - Is anything in the plan untestable as specified?
-   - Does the design rely on any interpretation of the ticket that is NOT recorded in the Clarifications section? (A smuggled assumption is a blocking finding.)
+10. **Gate the plan before handing it off.** Spawn a subagent (the Task tool in Claude Code) whose prompt contains *only* the raw ticket text and the plan file — none of this conversation — and ask it exactly five questions:
+- For each acceptance criterion, which part of the design satisfies it? Name any criterion with no answer.
+- What is the most likely failure mode of the chosen approach?
+- Is anything in the plan untestable as specified?
+- Does the design rely on any interpretation of the ticket that is NOT recorded in the Clarifications section? (A smuggled assumption is a blocking finding.)
+- **Does the design hold on every platform, mode and environment this repo supports?** Check the repo's own docs for the supported matrix (OS, deployment mode, packaged vs dev). Name any combination where the design fails or is untested. Shell invocation, path separators, container behaviour and filesystem semantics are the usual offenders.
 
-   Fold blocking answers back into the plan before finishing. This is the cheapest review in the whole workflow — a design flaw caught here costs a paragraph edit; the same flaw caught at code review costs a rewrite. If subagents aren't available, ask the user to run these three questions in a fresh conversation against the plan file.
+Fold blocking answers back into the plan before finishing. This is the cheapest review in the whole workflow — a design flaw caught here costs a paragraph edit; the same flaw caught at code review costs a rewrite, and one caught after merge costs a broken build for every developer on the unlucky platform.
+
+**Verify a blocking finding before acting on it.** The gate can be confidently wrong — it may report intended behaviour as a defect. Check the claim against the code yourself; if it is wrong, say so in the Plan gate section rather than redesigning around a phantom.
+
+If subagents aren't available, ask the user to run these questions in a fresh conversation against the plan file.
 
 11. Give the user a 4-6 line summary in chat, the gate's findings, and any open questions.
 
@@ -74,20 +93,30 @@ Jira: <link>
 <one paragraph, your words>
 
 ## Acceptance criteria
-- [ ] ...
+<!-- tag every criterion: how it will be proven -->
+- [ ] <criterion> — *demonstrable-by-test*: <test or command>
+- [ ] <criterion> — *requires-manual-run*: <exactly what a human must do>
 
 ## Design
 <approach, chosen over <alternative> because ...>
 Affected: <files / components>
 Risky assumptions: <...>
+Platforms / modes checked: <where this was reasoned through, and where it was not>
 
 ## Tasks
+<!-- tests belong to the task they cover; no standalone "write the tests" task -->
 1. [ ] TASK-01 — <what> (depends on: none)
 2. [ ] TASK-02 — <what> (depends on: TASK-01)
 
 ## Test strategy
 - <path/behaviour> → <unit|integration>, run with `<command>`
+- Build/compile command (a green suite is not proof it compiles): `<command>`
 - Done when: <criteria beyond compiling>
+
+## Verification status
+<!-- maintained by ticket-build; the plan is not done until this is honest -->
+- Demonstrated: <what was actually observed to work, and how>
+- Not demonstrated: <every requires-manual-run criterion still unexecuted>
 
 ## Clarifications
 <!-- every ambiguity found in analysis, with its resolution — no unstated assumptions allowed -->
