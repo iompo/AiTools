@@ -10,7 +10,8 @@ Package the finished work into a GitLab merge request that a human can review qu
 ## Preconditions
 
 Before composing anything, confirm mechanically:
-- Tests are green (`./gradlew test`).
+- Tests are green, using the project's test command as named in the plan.
+- Every acceptance criterion the plan marked *requires-manual-run* has actually been executed by a human, and the plan's **Verification status** says so. If any is still unproven, name it and stop — a fix whose central criterion was never run should not reach a merge request on the strength of unit tests alone.
 - Every finding under **Blocking** in `.dev/reviews/<KEY>.md` has a non-empty `Resolution:` line (`fixed <sha>` or `waived — <reason>`). An empty Resolution on a blocker means the fix loop isn't done — say so and stop; don't accept a verbal "it's handled" in place of the ledger.
 - If no review file exists at all, say so and ask the user to confirm before proceeding. The file is local and uncommitted, so an absent one can mean either "never reviewed" or "reviewed in a different clone" — ask which, rather than guessing; a review that happened elsewhere is a ledger you cannot check, and skipping review entirely is the user's call to make explicitly.
 
@@ -30,8 +31,9 @@ Closes <Jira link>   <!-- or "Relates to" if it's partial -->
 - <bullet per meaningful change, reviewer-oriented>
 
 ## Testing
-- <what was run, e.g. `./gradlew :module:test` — all green>
-- <how a reviewer can verify manually, if relevant>
+- <the test/build commands that were run — all green>
+- <what was verified by hand, and on which platforms/modes>
+- <anything NOT verified, and why — reviewers need to know where the evidence stops>
 
 ## Review notes
 - <known tradeoffs, follow-ups deferred to other tickets, anything the reviewer should scrutinize>

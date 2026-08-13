@@ -18,6 +18,8 @@ A reviewer that watched the code being written inherits its assumptions and wave
 
 The parent conversation's jobs are assembling the inputs, adjudicating (below), and writing the consolidated findings to the review file.
 
+Two things keep the cost of several reviewers reasonable. **Pass artifacts by path, not by pasting**: write the diff and the raw ticket to files once and give every reviewer the paths, rather than inlining the same diff into each prompt. And give them a short **orientation block of neutral structural facts** — module layout, entry points, where the supported-platform matrix is documented — so three agents don't each re-derive the same call graph. Structural facts only: no conclusions, no suspicions, no "check X". Opinion re-anchors them and destroys the thing this phase exists for.
+
 Where subagents aren't available, the fallback is a genuinely new conversation. If you're being asked to review code you wrote earlier in this same conversation and can't spawn a subagent, say so plainly and do the review anyway — a biased review beats none — but mark the review file `Context: same-session (weaker)` so the human knows what they're reading.
 
 ## Adjudicate before you record

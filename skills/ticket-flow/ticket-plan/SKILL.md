@@ -28,7 +28,9 @@ An agent that has already started coding rationalizes its own design. Planning a
 
 4. **Read the code, don't imagine it.** Explore the affected modules, existing patterns, and neighbouring tests. Note the files and components the change will touch. A plan that names real files and existing conventions is worth ten that describe an idealized codebase. This step also filters the question list from step 3: anything the codebase itself answers (an existing convention, a config that already dictates the choice) gets answered here and noted — never forwarded to the user as busywork.
 
-   **This includes local state, not just source.** If the change reads or writes anything that lives outside version control — an untracked config or settings file, local credentials, a database, a running container, fixture data — *look at the actual artifact on this machine* before designing against an imagined one. Read its **shape, not its contents**: the key names, the mount points, the table names, with values redacted as you print them, since untracked config is exactly where secrets live. Designing against an imagined config file is how a plan ends up instructing the developer to run a command that destroys their credentials, and it is a common source of a clarification that has to be reversed mid-build.
+   **This includes local state, not just source.** If the change reads or writes anything outside version control — untracked config, local credentials, a database, a running container, fixture data — look at the real artifact before designing against an imagined one. Read its **shape, not its contents**: key names, mount points, table names, values redacted, since untracked config is exactly where secrets live. Designing against an imagined config is how a plan ends up telling the developer to run a command that destroys their credentials.
+
+   **Split the reading: agents for breadth, yourself for depth.** Use subagents to find *where* things live and what conventions exist — file:line plus a one-line characterization, explicitly **not** verbatim file dumps, which cost heavily and still won't be precise enough to design from. Then read the two or three load-bearing files directly. Deciding that split up front avoids the common waste of paying for a long agent report and re-reading the same files anyway. Never sleep-poll for a subagent; launch it, then do non-overlapping work or end the turn.
 
 5. **Clarification gate — ask, don't assume.** This is a hard rule for this phase: **do not resolve any remaining ambiguity by picking an interpretation yourself.** Collect everything still open from steps 2-4 into a single structured question round and put it to the user before designing anything:
    - Number each question, state why it matters (what changes in the design depending on the answer), and — where you can — offer the plausible options so the user can answer fast.
@@ -64,9 +66,7 @@ An agent that has already started coding rationalizes its own design. Planning a
    .dev/
    ```
 
-   `.git/info/exclude` rather than `.gitignore` because that file is itself per-clone and never committed — the workflow leaves no trace in the team's repo, and `.dev/` is invisible to `git add -A`, to reviewers, and to the MR diff. Doing this now, before a branch exists, is what keeps every later commit clean.
-
-   The consequence is worth stating: the artifacts live only in this working tree. A fresh session **on this machine** can pick up mid-workflow by reading them; a different machine or a different clone cannot — there, re-run `ticket-plan` or copy the file across by hand.
+   `.git/info/exclude` rather than `.gitignore` because that file is itself per-clone and never committed, so the workflow leaves no trace in the team's repo and `.dev/` stays invisible to `git add -A`, to reviewers and to the MR diff. The trade-off: the artifacts live only in this working tree, so a fresh session **on this machine** can resume mid-workflow by reading them, while a different clone cannot — there, re-run `ticket-plan` or copy the file across.
 
 10. **Gate the plan before handing it off.** Spawn a subagent (the Task tool in Claude Code) whose prompt contains *only* the raw ticket text and the plan file — none of this conversation — and ask it exactly five questions:
 - For each acceptance criterion, which part of the design satisfies it? Name any criterion with no answer.
@@ -75,9 +75,7 @@ An agent that has already started coding rationalizes its own design. Planning a
 - Does the design rely on any interpretation of the ticket that is NOT recorded in the Clarifications section? (A smuggled assumption is a blocking finding.)
 - **Does the design hold on every platform, mode and environment this repo supports?** Check the repo's own docs for the supported matrix (OS, deployment mode, packaged vs dev). Name any combination where the design fails or is untested. Shell invocation, path separators, container behaviour and filesystem semantics are the usual offenders.
 
-Fold blocking answers back into the plan before finishing. This is the cheapest review in the whole workflow — a design flaw caught here costs a paragraph edit; the same flaw caught at code review costs a rewrite, and one caught after merge costs a broken build for every developer on the unlucky platform.
-
-**Verify a blocking finding before acting on it.** The gate can be confidently wrong — it may report intended behaviour as a defect. Check the claim against the code yourself; if it is wrong, say so in the Plan gate section rather than redesigning around a phantom.
+Fold blocking answers back into the plan before finishing — but **verify each one against the code first**, since the gate can confidently report intended behaviour as a defect; note any you rejected and why. This is the cheapest review in the workflow: a design flaw caught here costs a paragraph, the same flaw at code review costs a rewrite, and after merge it costs a broken build for everyone on the unlucky platform.
 
 If subagents aren't available, ask the user to run these questions in a fresh conversation against the plan file.
 
