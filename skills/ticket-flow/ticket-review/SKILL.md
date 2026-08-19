@@ -18,6 +18,8 @@ A reviewer that watched the code being written inherits its assumptions and wave
 
 The parent conversation's jobs are assembling the inputs, adjudicating (below), and writing the consolidated findings to the review file.
 
+**A reviewer allowed to mutate production code needs its own worktree.** The cheapest way to test whether a test bites is to revert a line and re-run, and reviewers should do it — but two agents mutating one working tree concurrently produce unreproducible failures and mutation tables you cannot trust. Spawn those with `isolation: "worktree"`. If that is unavailable, run them one at a time and verify the tree is restored (`git status` and `git diff HEAD` both empty) between them.
+
 Two things keep the cost of several reviewers reasonable. **Pass artifacts by path, not by pasting**: write the diff and the raw ticket to files once and give every reviewer the paths, rather than inlining the same diff into each prompt. And give them a short **orientation block of neutral structural facts** — module layout, entry points, where the supported-platform matrix is documented — so three agents don't each re-derive the same call graph. Structural facts only: no conclusions, no suspicions, no "check X". Opinion re-anchors them and destroys the thing this phase exists for.
 
 Where subagents aren't available, the fallback is a genuinely new conversation. If you're being asked to review code you wrote earlier in this same conversation and can't spawn a subagent, say so plainly and do the review anyway — a biased review beats none — but mark the review file `Context: same-session (weaker)` so the human knows what they're reading.
@@ -29,6 +31,8 @@ Reviewer output is evidence, not verdict. Before anything goes in the review fil
 - **Verify every blocking finding yourself.** A confident subagent can report intended behaviour as a defect, and a false blocking finding costs a wasted fix cycle and can push the implementer into "fixing" correct code. Reproduce the claim — run the command, read the file, check the caller — and drop or downgrade what doesn't survive.
 - **Where reviewers disagree, do not just pick.** Check the disputed claim against the code, then record the finding with its actual scope and note that reviewers differed. Disagreement usually means the finding is real but conditional; the conditions are the useful part.
 - **Deduplicate across reviewers**, but keep a note when several found the same thing independently — that convergence is information the human should have.
+- **Convergence is evidence a finding is real; divergence is not evidence it is not.** The finding only one lens raised is the one that most needs your own verification, not the one to discount — on one ticket the single most serious defect on the branch came from one reviewer alone, while a finding nobody contradicted described a scenario that could not occur. Check the mechanism, never the vote count.
+- **Severity follows the deliverable, not the size of the fix.** A one-line defect in the thing the ticket exists to produce is not a nitpick. Where the ticket's output *is* a message, a number or a report, a flaw that makes it misleading is a correctness finding however trivial the patch — one filed as cosmetic in an early round is the kind that gets correctly re-rated later.
 
 ## Inputs to load
 
@@ -60,7 +64,7 @@ Context: subagent (<n> reviewers, lenses: <...>) | fresh-session | same-session 
 ## Blocking (must fix before MR)
 - B1: <file>:<line> — <problem> — <why it matters, with a concrete failure scenario>
   <if several reviewers found it independently, or if they disagreed and how you resolved it>
-  Resolution: <left empty by review; filled by ticket-build as `fixed <sha>` or `waived — <reason>`>
+  Resolution: <left empty by review; filled by ticket-build as `fixed <sha>`, `waived — <reason>`, or `escalated — <question, owner>`>
 
 ## Should fix
 - S1: ...
@@ -78,12 +82,16 @@ Context: subagent (<n> reviewers, lenses: <...>) | fresh-session | same-session 
 - <thing that looked suspicious and was checked, with the conclusion>
 ```
 
-Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and `ticket-mr` checks as its precondition. The review file stays local and uncommitted: both phases read it from the working tree, and human reviewers learn about waived findings from the MR description, which `ticket-mr` already requires to quote them verbatim. Findings from an automated review don't belong in the team's history.
+Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and `ticket-mr` checks as its precondition. Three states close it: `fixed <sha>`, `waived — <reason>`, and `escalated — <question, owner>` for a finding that turns out to need a product decision. Escalated is still open: without it, a finding awaiting the user's call is indistinguishable from one nobody acted on. The review file stays local and uncommitted: both phases read it from the working tree, and human reviewers learn about waived findings from the MR description, which `ticket-mr` already requires to quote them verbatim. Findings from an automated review don't belong in the team's history.
 
 ## Boundaries
 
 Do not fix the issues here — reviewing and fixing in one pass reintroduces the anchoring problem. Hand the findings to `ticket-build` (fix mode), then re-review the fix commits or proceed to `ticket-mr`. Re-reviews can be scoped to the fix commits plus any finding marked waived.
 
 **A large fix batch needs a re-review, not a spot check.** When a fix pass resolves several blocking findings across different layers, the result is a substantial new change written by the same agent — the exact situation this phase exists for. Re-review it properly, with fresh reviewers.
+
+**Point the test-quality traps at the tests the fix pass itself wrote.** A fix closing a blind-test finding is a prime site for a new blind test, and this happens in practice: a finding about tests that could not fail gets answered with a fresh assertion that also cannot fail — the same defect, one round later, inside its own remedy.
+
+**Re-run the decisive test against the exact shipping commit, with a verified-clean tree.** Suites run against the working tree that *preceded* each commit leave no artifact for the code that ships, and "the implementer reported it green" is not the same claim. Check `git status` and `git diff HEAD` are empty, note the sha you ran at, and say plainly which criteria were demonstrated against it and which rest on a report.
 
 **Feed recurring findings back into `ticket-plan`.** If a whole class of defect keeps surfacing here — platform coverage, untested glue, criteria that were never demonstrated — the cheap fix is a question in the plan gate, not a sharper review. A defect caught at design costs a paragraph; the same defect caught here costs a fix-and-re-review cycle.
