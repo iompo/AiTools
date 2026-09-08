@@ -82,11 +82,27 @@ Context: subagent (<n> reviewers, lenses: <...>) | fresh-session | same-session 
 - <thing that looked suspicious and was checked, with the conclusion>
 ```
 
-Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and `ticket-mr` checks as its precondition. Three states close it: `fixed <sha>`, `waived — <reason>`, and `escalated — <question, owner>` for a finding that turns out to need a product decision. Escalated is still open: without it, a finding awaiting the user's call is indistinguishable from one nobody acted on. The review file stays local and uncommitted: both phases read it from the working tree, and human reviewers learn about waived findings from the MR description, which `ticket-mr` already requires to quote them verbatim. Findings from an automated review don't belong in the team's history.
+Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and the thing to check before the branch goes to a merge request. Three states close it: `fixed <sha>`, `waived — <reason>`, and `escalated — <question, owner>` for a finding that turns out to need a product decision. Escalated is still open: without it, a finding awaiting the user's call is indistinguishable from one nobody acted on. The review file stays local and uncommitted: both phases read it from the working tree, and human reviewers learn about waived findings from the MR description, which must quote them verbatim. Findings from an automated review don't belong in the team's history.
+
+## Handing the branch off for a merge request
+
+This workflow stops at a reviewed branch — opening the merge request is the user's action. Before
+telling them it is ready, confirm these mechanically and report any that fail rather than rounding
+up to "ready":
+
+- **Tests green**, using the command the plan names, run against the exact shipping commit with a clean tree.
+- **Every blocking finding has a non-empty `Resolution:` line** — `fixed <sha>`, `waived — <reason>`, or `escalated — <question, owner>` — in `.dev/reviews/<KEY>.md` and, if it exists, in `.dev/mr-comments/<KEY>.md`. An empty line on a blocker means the fix loop is not done. Don't accept a verbal "it's handled" in place of the ledger.
+- **Every `requires-manual-run` acceptance criterion has actually been executed by a human**, with the plan's **Verification status** saying so. A fix whose central criterion was never run should not reach a merge request on the strength of unit tests alone — name it and say the branch is blocked on it.
+
+Then give the user what the MR description needs, since these artifacts are local and never reach a
+reviewer: what changed and why, the commands that were run and what they proved, what was *not*
+verified and why, and **any waived blocking finding quoted verbatim with its reason** — a human
+reviewer has to see what was consciously skipped. Keep the Jira key in the branch, the commits and
+the MR title; that is what drives the GitLab↔Jira link.
 
 ## Boundaries
 
-Do not fix the issues here — reviewing and fixing in one pass reintroduces the anchoring problem. Hand the findings to `ticket-build` (fix mode), then re-review the fix commits or proceed to `ticket-mr`. Re-reviews can be scoped to the fix commits plus any finding marked waived.
+Do not fix the issues here — reviewing and fixing in one pass reintroduces the anchoring problem. Hand the findings to `ticket-build` (fix mode), then re-review the fix commits or open the merge request yourself. Re-reviews can be scoped to the fix commits plus any finding marked waived.
 
 **A large fix batch needs a re-review, not a spot check.** When a fix pass resolves several blocking findings across different layers, the result is a substantial new change written by the same agent — the exact situation this phase exists for. Re-review it properly, with fresh reviewers.
 
