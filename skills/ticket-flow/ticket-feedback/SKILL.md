@@ -1,11 +1,11 @@
 ---
 name: ticket-feedback
-description: Read the human review comments on a ticket's GitLab merge request, analyse each one against the current code, and write a numbered list of proposed fixes with explanations that the user picks from one at a time. Use whenever the user wants to deal with what a reviewer said on the MR — e.g. "read the MR comments for PROJ-123", "what did the reviewer ask for", "go through the GitLab review comments", "the reviewer left notes on the MR". This is the FIFTH phase of the ticket workflow and closes the loop back into ticket-build: it proposes and explains, it never edits code, never commits, and never posts to GitLab. If the user instead wants findings that are already written down to be applied, that is ticket-build's fix mode.
+description: Read the unresolved human review comments on a ticket's GitLab merge request, analyse each one against the current code, and write a numbered list of proposed fixes with explanations that the user picks from one at a time. Use whenever the user wants to deal with what a reviewer said on the MR — e.g. "read the MR comments for PROJ-123", "what did the reviewer ask for", "go through the GitLab review comments", "the reviewer left notes on the MR". This is the FIFTH phase of the ticket workflow and closes the loop back into ticket-build: it proposes and explains, it never edits code, never commits, and never posts to GitLab. If the user instead wants findings that are already written down to be applied, that is ticket-build's fix mode.
 ---
 
 # ticket-feedback
 
-Turn the reviewer comments on an open GitLab merge request into a numbered, explained set of proposed fixes in `.dev/mr-comments/<KEY>.md`, so the user can choose which ones to apply and in what order. **Propose and explain only — no code edits, no commits, no replies posted to GitLab.** `ticket-build` in fix mode applies whichever numbers the user picks.
+Turn the unresolved reviewer comments on an open GitLab merge request into a numbered, explained set of proposed fixes in `.dev/mr-comments/<KEY>.md`, so the user can choose which ones to apply and in what order. **Propose and explain only — no code edits, no commits, no replies posted to GitLab.** `ticket-build` in fix mode applies whichever numbers the user picks.
 
 ## Where this sits
 
@@ -43,16 +43,28 @@ So this phase reads, verifies, classifies and proposes. Judgement about which pr
 
    Whatever the channel, capture per note: **thread (discussion) id, author, timestamp, resolved flag, file path and line, the sha the comment was anchored to, and whether the thread already has replies.** The thread id is the identity this artifact is keyed on across re-runs; without it, a second run cannot tell a new comment from one you already processed.
 
-   Filter out what is not review feedback: system notes (label/assignee/pipeline events), the MR description itself, bot and CI comments, and — by default — threads already marked resolved. Say how many you filtered and why, so a reviewer's point that was auto-resolved by a force-push does not vanish without trace. If the user asks for resolved threads too, include them marked as such.
+   **Filter before you analyse — a resolved thread is out of scope.** Only threads still open reach steps 3-8; everything else is recorded under `## Filtered out` and never becomes a finding. Drop:
+   - **Threads already marked resolved.** This is the default, not a judgement call. The discussions endpoint has no top-level resolved flag, so decide from the notes: a thread is resolved when every note with `"resolvable": true` also has `"resolved": true`. Notes with `"resolvable": false` — plain MR-level comments, not anchored to a diff — can never be resolved and are therefore always open, so keep them. Record `resolved_by` in the filtered list; who closed a thread is the fastest way to spot one that was closed by mistake.
+   - System notes (label/assignee/pipeline events, `"system": true`), the MR description itself, and bot or CI comments.
 
-3. **Anchor every comment to the code as it is now, before analysing it.** A comment is pinned to the sha it was written against, and the branch has usually moved since. For each one, open the file at the current HEAD and establish which of these is true:
+   With `glab` or the REST API, filter the payload rather than eyeballing it:
+
+   ```bash
+   jq '[ .[]
+         | select(any(.notes[]; .system | not))
+         | select([ .notes[] | select(.resolvable) | .resolved ] | (length == 0 or any(. == false))) ]'
+   ```
+
+   A pasted dump has none of these fields, so ask the user which threads are already resolved instead of guessing from the text. Say how many you filtered and why, so a reviewer's point that was auto-resolved by a force-push does not vanish without trace. Include resolved threads **only** when the user explicitly asks for them, and then mark each one `resolved-on-gitlab` so it can never be mistaken for live feedback.
+
+3. **Anchor every open comment to the code as it is now, before analysing it.** Filtered threads stop at step 2 — do not anchor, classify or propose anything for one. A comment is pinned to the sha it was written against, and the branch has usually moved since. For each one, open the file at the current HEAD and establish which of these is true:
    - **Still applies** — the code the comment describes is there, at that line or wherever it moved to. Record the *current* file:line, not the one the API returned.
    - **Already addressed** — a later commit changed it. Name the sha. This is a real outcome, not a way to duck the comment: it still needs a reply telling the reviewer where it was handled.
    - **Outdated** — the code the comment refers to no longer exists in any form.
 
    Do this by reading the file, never by trusting the API's line number. A stale anchor is how a proposal ends up describing a fix to a line that now contains something else entirely.
 
-4. **Classify each comment before proposing anything.** "Propose a fix for each comment" is the goal, but a fix is only the right response to some of these:
+4. **Classify each open comment before proposing anything.** "Propose a fix for each comment" is the goal, but a fix is only the right response to some of these:
    - **defect** — the code is wrong. Blocking.
    - **improvement** — the code works, the reviewer wants it better. Should-fix.
    - **question** — wants an answer, not a patch. The deliverable is a drafted reply. If the answer turns out to be "you're right, that is a bug", reclassify it as a defect and say that it started as a question.
@@ -91,9 +103,9 @@ So this phase reads, verifies, classifies and proposes. Judgement about which pr
 
    This phase can be the first one run in a fresh clone (reviewing an MR built elsewhere), so do not assume `ticket-plan` already did it. One unexcluded commit puts a transcript of your colleagues' review comments in the team's repository.
 
-   **Re-runs must be idempotent.** Comments arrive over days, so this skill gets run repeatedly against a growing MR. If the artifact already exists: match incoming threads by **thread id**, keep every existing finding's number and its `Resolution:` line exactly as it is, append new threads with the next free numbers, and mark findings whose thread has since been resolved upstream as `resolved-on-gitlab` without deleting them. **Never renumber.** The user refers to these by number in chat and `ticket-build` writes shas against them; renumbering silently reassigns work that was already approved.
+   **Re-runs must be idempotent.** Comments arrive over days, so this skill gets run repeatedly against a growing MR. If the artifact already exists: match incoming threads by **thread id**, keep every existing finding's number and its `Resolution:` line exactly as it is, append new threads with the next free numbers, and mark findings whose thread has since been resolved upstream as `resolved-on-gitlab` — keep the finding and its `Resolution:` line, stop re-analysing it, and drop it from the actionable list. **Never renumber.** The user refers to these by number in chat and `ticket-build` writes shas against them; renumbering silently reassigns work that was already approved.
 
-10. **Present the numbered list in chat, compactly, and stop.** One line per finding: ID, severity, current `file:line`, the fix in a clause, and a `plan-impact` marker where it applies. Lead with the blocking ones. Do not paste the full artifact into chat — it is on disk and the point of the summary is that the user can triage it in one screen. Then stop and let the user pick; do not start applying, and do not pre-emptively pick "the obvious ones" yourself.
+10. **Present the numbered list in chat, compactly, and stop.** One line per finding: ID, severity, current `file:line`, the fix in a clause, and a `plan-impact` marker where it applies. Lead with the blocking ones, and list only findings whose thread is still open — a `resolved-on-gitlab` one is history, not work. Do not paste the full artifact into chat — it is on disk and the point of the summary is that the user can triage it in one screen. Then stop and let the user pick; do not start applying, and do not pre-emptively pick "the obvious ones" yourself.
 
 11. **Hand off.** The user picks numbers; `ticket-build` fix mode applies them one at a time under its own approval gate, proving each new assertion bites and filling the `Resolution:` line here. Point them at it explicitly with the numbers they chose. Two things about what happens after:
     - After the fix pass, pushing the branch updates the existing MR by itself — do not open a second one. Update the MR description by hand if what it claims has changed: newly waived findings quoted verbatim, new testing evidence, a tradeoff the reviewer raised.
@@ -132,4 +144,4 @@ Resolution: <left empty here; filled by ticket-build as `fixed <sha>`, `waived �
 
 ## Boundaries
 
-Do not edit code, do not commit, do not push, do not post or resolve anything on GitLab, and do not transition Jira. Never stage, commit, or `git add -f` anything under `.dev/` — this artifact quotes colleagues' review comments verbatim and belongs in the working tree only. Do not apply a fix "while you're in there" because it is one line; the numbering exists so the user decides, and a proposal silently applied is a decision taken from them. If there are no open comments, say exactly that rather than manufacturing findings — an MR with a clean review is the expected outcome, not a failure of this phase.
+Do not edit code, do not commit, do not push, do not post or resolve anything on GitLab, and do not transition Jira. Never stage, commit, or `git add -f` anything under `.dev/` — this artifact quotes colleagues' review comments verbatim and belongs in the working tree only. Do not apply a fix "while you're in there" because it is one line; the numbering exists so the user decides, and a proposal silently applied is a decision taken from them. Do not resurrect a resolved thread as a finding because you disagree with how it was closed; say so in `## Filtered out` and let the user reopen it on GitLab. If there are no open comments, say exactly that rather than manufacturing findings — an MR with a clean review is the expected outcome, not a failure of this phase.
