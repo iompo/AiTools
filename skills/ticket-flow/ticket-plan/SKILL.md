@@ -18,13 +18,13 @@ An agent that has already started coding rationalizes its own design. Planning a
 2. **Restate the problem in your own words.** One short paragraph: what outcome the ticket wants and why. This catches misreadings early. List the acceptance criteria explicitly; if the ticket has none, derive candidate criteria and flag that you did.
 
 3. **Interrogate the ticket for gaps.** Jira tickets are written for humans with shared context; assume that context is missing here and hunt for it explicitly. Check each of these and note what the ticket does NOT say:
-    - **Scope edges** — what's explicitly out of scope? Does "fix X" include the adjacent Y everyone mentally bundles with it?
-    - **Acceptance criteria quality** — are they testable as written, or vibes ("should be faster", "handle errors better")?
-    - **Unhappy paths** — does the ticket only describe the success case? What should happen on invalid input, timeout, partial failure?
-    - **Data & compatibility** — existing data to migrate? API/contract consumers who'd break? Backwards compatibility expected?
-    - **Non-functionals** — any implied performance, security, or resource constraints the ticket never states?
-    - **Environment** — which environments/configs does this apply to? Feature-flagged or straight in?
-    - **Dependencies** — does this silently depend on another ticket, a team decision, or an external system?
+   - **Scope edges** — what's explicitly out of scope? Does "fix X" include the adjacent Y everyone mentally bundles with it?
+   - **Acceptance criteria quality** — are they testable as written, or vibes ("should be faster", "handle errors better")?
+   - **Unhappy paths** — does the ticket only describe the success case? What should happen on invalid input, timeout, partial failure?
+   - **Data & compatibility** — existing data to migrate? API/contract consumers who'd break? Backwards compatibility expected?
+   - **Non-functionals** — any implied performance, security, or resource constraints the ticket never states?
+   - **Environment** — which environments/configs does this apply to? Feature-flagged or straight in?
+   - **Dependencies** — does this silently depend on another ticket, a team decision, or an external system?
 
 4. **Read the code, don't imagine it.** Explore the affected modules, existing patterns, and neighbouring tests. Note the files and components the change will touch. A plan that names real files and existing conventions is worth ten that describe an idealized codebase. This step also filters the question list from step 3: anything the codebase itself answers (an existing convention, a config that already dictates the choice) gets answered here and noted — never forwarded to the user as busywork.
 
@@ -39,36 +39,44 @@ An agent that has already started coding rationalizes its own design. Planning a
    **Split the reading: agents for breadth, yourself for depth.** Use subagents to find *where* things live and what conventions exist — file:line plus a one-line characterization, explicitly **not** verbatim file dumps, which cost heavily and still won't be precise enough to design from. Then read the two or three load-bearing files directly. Deciding that split up front avoids the common waste of paying for a long agent report and re-reading the same files anyway. Never sleep-poll for a subagent; launch it, then do non-overlapping work or end the turn.
 
 5. **Clarification gate — ask, don't assume.** This is a hard rule for this phase: **do not resolve any remaining ambiguity by picking an interpretation yourself.** Collect everything still open from steps 2-4 into a single structured question round and put it to the user before designing anything:
-    - Number each question, state why it matters (what changes in the design depending on the answer), and — where you can — offer the plausible options so the user can answer fast.
-    - Batch them: one round of questions beats a drip-feed. Only ask a second round if an answer genuinely opens a new question.
-    - If the user explicitly answers "you decide" or "doesn't matter" to a question, only then may you choose — and you record the choice AND that it was delegated.
-    - If the ticket is missing information only its author or a stakeholder can supply, say so plainly and offer to draft the Jira comment asking for it (`Atlassian:addCommentToJiraIssue`) — don't design around the hole.
-    - If, unusually, steps 2-4 leave nothing open, say that explicitly ("no open questions — the ticket plus the codebase answer everything") rather than inventing questions to appear thorough.
+   - Number each question, state why it matters (what changes in the design depending on the answer), and — where you can — offer the plausible options so the user can answer fast.
+   - Batch them: one round of questions beats a drip-feed. Only ask a second round if an answer genuinely opens a new question.
+   - If the user explicitly answers "you decide" or "doesn't matter" to a question, only then may you choose — and you record the choice AND that it was delegated.
+   - If the ticket is missing information only its author or a stakeholder can supply, say so plainly and offer to draft the Jira comment asking for it (`Atlassian:addCommentToJiraIssue`) — don't design around the hole.
+   - If, unusually, steps 2-4 leave nothing open, say that explicitly ("no open questions — the ticket plus the codebase answer everything") rather than inventing questions to appear thorough.
 
    Every answer gets recorded in the plan's **Clarifications** section: question, answer, who decided. The plan must be executable by someone who never saw this conversation, so the answers live in the artifact, not the chat scrollback. A plan containing an unstated assumption is a planning bug, exactly like a hardcoded secret is a coding bug.
 
 6. **Design.** Propose the approach. Name at least one alternative and why you rejected it. Call out risky assumptions and anything that could ripple (schema changes, API contracts, config/secrets, migration). Keep it to the decisions — no line-by-line code.
 
-   Two rules about how the design is *written down*, both of which have let real defects through:
+   Three rules about how the design is *written down*, all of which have let real defects through:
 
-    - **Decision tables go over the predicates the code will evaluate, not over prose state names.**
-      If the approach turns on more than two outcomes, name each row as the expression that selects it
-      rather than as an English description. Prose silently merges states the code must keep apart — a
-      row phrased as an absence readily conflates "there was nothing to look at" with "there was
-      something and none of it matched", which usually need different handling — and the
-      implementation then treats them identically.
-    - **If the change makes one class or member the odd one out among the siblings that share its
-      role, either follow the sibling convention or write down why not.** Deviating from an
-      established pattern is a strong signal the fix belongs at a different level. When every sibling
-      carries a declaration and one does not, the fix is usually that missing declaration rather than a
-      workaround bolted onto one of the outlier's call sites — a workaround fixes the site you were
-      looking at and leaves the others broken.
+   - **Decision tables go over the predicates the code will evaluate, not over prose state names.**
+     If the approach turns on more than two outcomes, name each row as the expression that selects it
+     rather than as an English description. Prose silently merges states the code must keep apart — a
+     row phrased as an absence readily conflates "there was nothing to look at" with "there was
+     something and none of it matched", which usually need different handling — and the
+     implementation then treats them identically.
+   - **If the change makes one class or member the odd one out among the siblings that share its
+     role, either follow the sibling convention or write down why not.** Deviating from an
+     established pattern is a strong signal the fix belongs at a different level. When every sibling
+     carries a declaration and one does not, the fix is usually that missing declaration rather than a
+     workaround bolted onto one of the outlier's call sites — a workaround fixes the site you were
+     looking at and leaves the others broken.
+   - **Write down the invariants the design leans on that the code does not state.** Where
+     correctness rests on what a caller guarantees rather than on what the class enforces — an order
+     of calls, a precondition established elsewhere, a state one component can only be in because
+     another put it there — say so, name the caller that guarantees it, and name the ordering that
+     would break it. An unstated invariant is invisible to every later phase: a reviewer reads the
+     class alone, correctly concludes the bad state is expressible, and files a defect; the fix
+     adds machinery to defend against something that cannot happen. Recording it once costs a
+     sentence and settles the question for good.
 
 7. **Break into ordered tasks** with dependencies. Each task should be independently verifiable and small enough to review. Order them so the branch stays green after each.
 
    Two rules that keep the task list honest:
-    - **No standalone "write the tests" task.** Test work belongs to the task whose code it covers, because `ticket-build` writes tests alongside the code. A bundled TASK-N "Tests" guarantees the two phases contradict each other and that tests get written last, or not at all.
-    - **If two tasks cannot be split without an inconsistent intermediate state, make them one task.** Splitting a change whose halves only make sense together produces a commit that is broken by construction — sometimes a transient instance of the very bug being fixed.
+   - **No standalone "write the tests" task.** Test work belongs to the task whose code it covers, because `ticket-build` writes tests alongside the code. A bundled TASK-N "Tests" guarantees the two phases contradict each other and that tests get written last, or not at all.
+   - **If two tasks cannot be split without an inconsistent intermediate state, make them one task.** Splitting a change whose halves only make sense together produces a commit that is broken by construction — sometimes a transient instance of the very bug being fixed.
 
 8. **Test strategy, and mark what can actually be proven.** For each risky path, say what to test and at what level (unit / integration). Name the concrete command this project uses, scoped as narrowly as still covers the change — a single module or suite beats the whole build when the toolchain allows it. Name the build/compile command too, separately: in many toolchains a green suite does not prove the project compiles for shipping. Define what "done" means beyond "it compiles".
 
@@ -78,8 +86,8 @@ An agent that has already started coding rationalizes its own design. Planning a
    threshold never runs the branch it exists for, and the suite stays green if the bound is deleted.
 
    Then tag **every acceptance criterion** as one of:
-    - **demonstrable-by-test** — an automated check can prove it; name the test or command.
-    - **requires-manual-run** — only a human executing the app can prove it (needs Docker, a licence, a dataset, real hardware, a GUI). Say exactly what the person has to do.
+   - **demonstrable-by-test** — an automated check can prove it; name the test or command.
+   - **requires-manual-run** — only a human executing the app can prove it (needs Docker, a licence, a dataset, real hardware, a GUI). Say exactly what the person has to do.
 
    Be honest about the second category rather than hiding it behind a test that merely *approximates* the criterion. This tag is what stops an undemonstrated fix from travelling all the way to the merge request: `ticket-build` may not report completion while a `requires-manual-run` criterion is unexecuted. If the criterion the whole ticket exists for lands in that category, say so in the chat summary — it is the most important thing the user needs to know.
 
