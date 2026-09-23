@@ -22,6 +22,8 @@ The parent conversation's jobs are assembling the inputs, adjudicating (below), 
 
 Two things keep the cost of several reviewers reasonable. **Pass artifacts by path, not by pasting**: write the diff and the raw ticket to files once and give every reviewer the paths, rather than inlining the same diff into each prompt. And give them a short **orientation block of neutral structural facts** — module layout, entry points, where the supported-platform matrix is documented — so three agents don't each re-derive the same call graph. Structural facts only: no conclusions, no suspicions, no "check X". Opinion re-anchors them and destroys the thing this phase exists for.
 
+**The plan is the one input that carries the implementer's reasoning — treat it accordingly.** Everything else in this phase is built on keeping the implementing conversation out, but `ticket-plan` and `ticket-build` write their decisions *into the plan*, which then arrives as input 1. A residue recorded as "deliberately not handled (user decision)", a mechanism with its justification, a `waived` line — each is the implementer's argument wearing an artifact's clothes, and a reviewer that reads it as settled context stops looking at exactly the place someone already chose not to look. So pass the plan's **design and acceptance criteria** as context, and pass its **recorded decisions as claims to test**, stated neutrally: not "this case was judged too rare to handle", but "verify: how is this case reached, how likely is it, and what happens if nothing handles it". A reviewer told the answer will confirm it; a reviewer given the question will check it.
+
 Where subagents aren't available, the fallback is a genuinely new conversation. If you're being asked to review code you wrote earlier in this same conversation and can't spawn a subagent, say so plainly and do the review anyway — a biased review beats none — but mark the review file `Context: same-session (weaker)` so the human knows what they're reading.
 
 ## Adjudicate before you record
@@ -52,6 +54,22 @@ Go through these deliberately — each is a common source of "passed review, bro
 - **Secrets and config.** No credentials in code or ConfigMaps; secrets go through the proper mechanism. Flag any plaintext sensitive value.
 - **Test quality, not just presence.** Do the tests exercise the risky paths from the plan, or just the happy path? Would they actually fail if the code regressed? Trivial assertions are worse than none because they signal false safety. Two specific traps: a test whose fixture *establishes* the relationship the assertion then checks proves only that the language works; and a test whose **name contradicts its assertion** is worse than no test, because the next person will "fix" whichever half is wrong — possibly the production code. Also ask what has *no* test: if the change's central line could be reverted with the suite still green, say so.
 - **Consistency.** Does the code match existing conventions and the design in the plan? Undocumented deviations from the plan are findings.
+- **Recorded decisions are claims, not settlements — check what each one rested on.** The plan will
+  say a case was priced and left unhandled, or that a defence was built for a case it names. Neither
+  closes the question; both were decided on an estimate, and the estimate is what you verify, in the
+  code, both ways:
+    - **Left unhandled**: is the window really that narrow, is it really reached only the way the plan
+      says, and does the stated recovery actually exist? Find the caller and read it. If any of the
+      three is wrong, the decision was made on false information and the gap is a finding — say which
+      of the three failed, because that is what the user needs to re-decide. If all three hold, record
+      it under *Verified fine* naming the plan entry, so the next round does not re-litigate it.
+    - **Built**: is the case reachable from a real caller at all, and is the mechanism proportionate to
+      it? Complexity with no reachable case is a finding in its own right — dead defences carry their
+      own failure modes, and their tests pass whatever the production code does. A mechanism the plan
+      never priced is worth flagging even when it works.
+      **"The user decided" is not an answer to either.** The user decided against what they were told;
+      showing the telling was wrong reopens it. What you must not do is re-argue a decision whose inputs
+      you checked and found true — that is the finding nobody can act on.
 
 ## Output
 
@@ -98,7 +116,10 @@ up to "ready":
 Then give the user what the MR description needs, since these artifacts are local and never reach a
 reviewer: what changed and why, the commands that were run and what they proved, what was *not*
 verified and why, and **any waived blocking finding quoted verbatim with its reason** — a human
-reviewer has to see what was consciously skipped. Keep the Jira key in the branch, the commits and
+reviewer has to see what was consciously skipped. **The same goes for every case the plan priced and
+left unhandled**, with its likelihood and its recovery: it never became a finding, so nothing else
+carries it out of the local artifacts, and the human reviewer is the last person who can overrule a
+call the workflow made about their codebase. Keep the Jira key in the branch, the commits and
 the MR title; that is what drives the GitLab↔Jira link.
 
 ## Boundaries
