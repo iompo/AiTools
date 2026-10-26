@@ -5,85 +5,60 @@ description: Adversarially review a ticket's implementation against its plan and
 
 # ticket-review
 
-Review the implementation with fresh, adversarial eyes. Load only the artifacts, not the implementer's justifications, and try to find what's wrong before a human (or CI) does.
+Review the implementation with fresh, adversarial eyes: only the artifacts, never the implementer's justifications. Find what is wrong before a human or CI does.
 
-## Why fresh context matters — and how to enforce it
+## Enforce fresh context mechanically
 
-A reviewer that watched the code being written inherits its assumptions and waves the same things through. Don't rely on discipline: **mechanically restrict the reviewer's context**. In Claude Code, run the analysis as subagents (Task tool) whose prompts contain only three things — the plan file contents, the acceptance criteria, and the diff — plus the checklist below. Nothing from the implementing conversation goes in, and no hints about what you suspect: a reviewer told where to look stops looking anywhere else.
+Run the analysis as subagents whose prompts contain only the inputs below plus the checklist — nothing from the implementing conversation, no hints about what you suspect. Use **two or three reviewers with distinct lenses** (e.g. primary subsystem changed; tests and security; "does this fix the reported bug and match the plan"): each lens finds things the others miss, and independent convergence is a confidence signal. The parent's jobs are assembling inputs, adjudicating and writing the review file.
 
-**Use two or three reviewers with distinct lenses, not one generalist.** Give each the same three inputs but a different assignment — e.g. one on the primary language/subsystem changed, one on tests and security, one on "does this actually fix the reported bug, and does the diff match the plan". This buys two things a single reviewer cannot:
+Where subagents aren't available, use a genuinely new conversation. Reviewing code you wrote in this same conversation with no subagent: say so, review anyway, and mark the file `Context: same-session (weaker)`.
 
-- **Coverage.** Each lens reliably finds things the others miss entirely.
-- **A confidence signal.** When independent reviewers converge on the same defect, that agreement is strong evidence it is real — far stronger than one reviewer asserting it.
+## Inputs — assembled once by the parent, passed by path
 
-The parent conversation's jobs are assembling the inputs, adjudicating (below), and writing the consolidated findings to the review file.
+Reviewers used to end at 350k+ tokens of context each because every one re-read the whole plan and the whole branch diff and re-ran every suite. Keep them small:
 
-**A reviewer allowed to mutate production code needs its own worktree.** The cheapest way to test whether a test bites is to revert a line and re-run, and reviewers should do it — but two agents mutating one working tree concurrently produce unreproducible failures and mutation tables you cannot trust. Spawn those with `isolation: "worktree"`. If that is unavailable, run them one at a time and verify the tree is restored (`git status` and `git diff HEAD` both empty) between them.
+1. **Plan contract**: `.dev/plans/<KEY>.md` — design, acceptance criteria, tasks, clarifications. **Not** `.dev/build/<KEY>.md`: the build log is the implementer's narrative and must not reach a reviewer.
+2. **Acceptance criteria**: from the plan, re-fetching the Jira ticket (`Atlassian:getJiraIssue`) in case it changed.
+3. **Diff, scoped per lens**: `git fetch origin`, then `git diff origin/<default>...<branch> -- <paths of that lens>` written to a file per lens, plus `--stat` of the whole branch for orientation. Only the "fix matches plan" lens gets the full diff. Diffing against a stale local base reviews changes that aren't there.
+4. **Test and build results**: the parent runs the plan's test and build commands **once**, at the shipping commit with a verified-clean tree (`git status` and `git diff HEAD` empty), and writes exit status, counts and sha to a file. Reviewers do **not** re-run suites or builds; they run targeted mutations only, on the files of their lens, each in its own worktree (`isolation: "worktree"`; if unavailable, one at a time with the tree verified restored between them).
+5. **Orientation block**: neutral structural facts only — module layout, entry points, where the platform matrix is documented. No conclusions, no suspicions, no "check X".
 
-Two things keep the cost of several reviewers reasonable. **Pass artifacts by path, not by pasting**: write the diff and the raw ticket to files once and give every reviewer the paths, rather than inlining the same diff into each prompt. And give them a short **orientation block of neutral structural facts** — module layout, entry points, where the supported-platform matrix is documented — so three agents don't each re-derive the same call graph. Structural facts only: no conclusions, no suspicions, no "check X". Opinion re-anchors them and destroys the thing this phase exists for.
+**Recorded decisions are passed as claims to test, not as context.** The plan carries the implementer's reasoning: priced defences, residues "deliberately not handled (user decision)", waived lines. State each neutrally in the reviewer prompt — "verify: how is this case reached, how likely, what happens if nothing handles it" — never as settled. A reviewer told the answer confirms it; a reviewer given the question checks it.
 
-**The plan is the one input that carries the implementer's reasoning — treat it accordingly.** Everything else in this phase is built on keeping the implementing conversation out, but `ticket-plan` and `ticket-build` write their decisions *into the plan*, which then arrives as input 1. A residue recorded as "deliberately not handled (user decision)", a mechanism with its justification, a `waived` line — each is the implementer's argument wearing an artifact's clothes, and a reviewer that reads it as settled context stops looking at exactly the place someone already chose not to look. So pass the plan's **design and acceptance criteria** as context, and pass its **recorded decisions as claims to test**, stated neutrally: not "this case was judged too rare to handle", but "verify: how is this case reached, how likely is it, and what happens if nothing handles it". A reviewer told the answer will confirm it; a reviewer given the question will check it.
+## What reviewers check
 
-Where subagents aren't available, the fallback is a genuinely new conversation. If you're being asked to review code you wrote earlier in this same conversation and can't spawn a subagent, say so plainly and do the review anyway — a biased review beats none — but mark the review file `Context: same-session (weaker)` so the human knows what they're reading.
+- **Acceptance criteria, one by one**: point to the code that satisfies each. No corresponding change → blocking. Distinguish *satisfied* from *demonstrated*: a `requires-manual-run` criterion nobody executed is unproven, and blocking if it is the one the ticket exists for.
+- **Every platform, mode and environment the repo supports** (from the repo's own docs): shell invocation, path separators, filesystem semantics, container behaviour.
+- **Edge cases and failure modes**: empty/null, boundaries, concurrency, partial failure, timeouts, retries.
+- **Error handling and cleanup**: swallowed errors; connections, files, locks released on every path.
+- **Secrets and config**: no credentials in code or ConfigMaps.
+- **Test quality, not presence**: do tests exercise the plan's risky paths; would they fail on regression; fixture-establishes-what-the-assertion-checks tautologies; a name that contradicts its assertion (worse than no test); mocked collaborators asserted as if real; magic-count event-loop drains; race-condition tests in integration suites. Ask what has *no* test: if the change's central line could be reverted with the suite green, say so.
+- **Consistency**: existing conventions, the plan's design, undocumented deviations. **Invented vocabulary** — a name with no root in the ticket or codebase — is a finding.
+- **Cold-reader check on tracked files**: comments, READMEs, CLAUDE.md that reference plan jargon, finding IDs, guard numbers or `.dev/` paths, or need context the file doesn't give.
+- **Recorded decisions are claims**: *left unhandled* — is the window really that narrow, reached only that way, with the stated recovery actually existing? Find the caller. *Built* — reachable from a real caller, and proportionate? Complexity with no reachable case is a finding; so is a mechanism the plan never priced. "The user decided" answers neither — the user decided on what they were told. Do not re-argue a decision whose inputs you checked and found true; record it under *Verified fine*.
 
 ## Adjudicate before you record
 
-Reviewer output is evidence, not verdict. Before anything goes in the review file:
+Reviewer output is evidence, not verdict.
 
-- **Verify every blocking finding yourself.** A confident subagent can report intended behaviour as a defect, and a false blocking finding costs a wasted fix cycle and can push the implementer into "fixing" correct code. Reproduce the claim — run the command, read the file, check the caller — and drop or downgrade what doesn't survive.
-- **Reproducing the mechanism is not the same as reaching it.** A probe that drives the code into the bad state by calling internals directly proves only that the state is expressible. Before rating anything blocking, trace it from the real callers and ask what would have to happen in the running application; a state no caller can produce is not a defect, and a fix for it is complexity bought with nothing. Say in the finding which one you established — "reached from `<caller>`" or "mechanism only, no caller found" — because that sentence is what the next reader will act on. When you cannot construct the path yourself, that is the finding's answer, not a detail to leave out.
-- **Where reviewers disagree, do not just pick.** Check the disputed claim against the code, then record the finding with its actual scope and note that reviewers differed. Disagreement usually means the finding is real but conditional; the conditions are the useful part.
-- **Deduplicate across reviewers**, but keep a note when several found the same thing independently — that convergence is information the human should have.
-- **Convergence is evidence a finding is real; divergence is not evidence it is not.** The finding only one lens raised is the one that most needs your own verification, not the one to discount — on one ticket the single most serious defect on the branch came from one reviewer alone, while a finding nobody contradicted described a scenario that could not occur. Check the mechanism, never the vote count.
-- **Severity follows the deliverable, not the size of the fix.** A one-line defect in the thing the ticket exists to produce is not a nitpick. Where the ticket's output *is* a message, a number or a report, a flaw that makes it misleading is a correctness finding however trivial the patch — one filed as cosmetic in an early round is the kind that gets correctly re-rated later.
+- **Verify every blocking finding yourself** — run the command, read the file, check the caller. A false blocker costs a fix cycle and can push the implementer into "fixing" correct code.
+- **Reaching the mechanism is not reaching the state.** A probe that drives internals proves the state is expressible; trace it from real callers. Say which you established: "reached from `<caller>`" or "mechanism only, no caller found".
+- **Disagreement**: check the claim against the code, record the finding with its actual scope, note the disagreement — usually the finding is real but conditional.
+- **Deduplicate**, keeping the convergence note. **Divergence is not evidence of absence**: the finding one lens raised is the one most needing your verification. Check the mechanism, never the vote count.
+- **Severity follows the deliverable, not the patch size.** A one-line flaw in the thing the ticket exists to produce is a correctness finding.
 
-## Inputs to load
-
-1. The plan: `.dev/plans/<KEY>.md`.
-2. The acceptance criteria: from the plan, and re-fetch the Jira ticket (`Atlassian:getJiraIssue`) in case it changed.
-3. The diff: `git fetch origin` first, then `git diff origin/<default>...<branch>` — diffing against a stale local base reviews changes that aren't there and misses conflicts with what landed on main since the branch was cut. Review the diff, not the whole repo (but the subagent may open surrounding files when a hunk is unintelligible without them).
-
-## What to check
-
-Go through these deliberately — each is a common source of "passed review, broke in prod":
-
-- **Acceptance criteria, one by one.** For each criterion, point to the code that satisfies it. Any criterion with no corresponding change is a blocking finding. Distinguish *satisfied* from *demonstrated*: a criterion the plan marked `requires-manual-run` and nobody executed is unproven, and if it is the criterion the ticket exists for, that is blocking no matter how green the suite is.
-- **Every platform, mode and environment the repo supports.** Read the repo's own docs for the matrix (OS, deployment mode, packaged vs dev, container runtime) and walk the change through each. Shell invocation, path separators, filesystem semantics and container behaviour are where changes verified on one machine quietly break another — and this class of defect survives review precisely because the implementer tested on their own laptop.
-- **Edge cases and failure modes.** Empty/null inputs, boundary values, concurrent access, partial failure, timeouts, retries. What happens on the unhappy path?
-- **Error handling and cleanup.** Are errors swallowed? Are resources (connections, files, locks) released on every path?
-- **Secrets and config.** No credentials in code or ConfigMaps; secrets go through the proper mechanism. Flag any plaintext sensitive value.
-- **Test quality, not just presence.** Do the tests exercise the risky paths from the plan, or just the happy path? Would they actually fail if the code regressed? Trivial assertions are worse than none because they signal false safety. Two specific traps: a test whose fixture *establishes* the relationship the assertion then checks proves only that the language works; and a test whose **name contradicts its assertion** is worse than no test, because the next person will "fix" whichever half is wrong — possibly the production code. Also ask what has *no* test: if the change's central line could be reverted with the suite still green, say so.
-- **Consistency.** Does the code match existing conventions and the design in the plan? Undocumented deviations from the plan are findings.
-- **Recorded decisions are claims, not settlements — check what each one rested on.** The plan will
-  say a case was priced and left unhandled, or that a defence was built for a case it names. Neither
-  closes the question; both were decided on an estimate, and the estimate is what you verify, in the
-  code, both ways:
-    - **Left unhandled**: is the window really that narrow, is it really reached only the way the plan
-      says, and does the stated recovery actually exist? Find the caller and read it. If any of the
-      three is wrong, the decision was made on false information and the gap is a finding — say which
-      of the three failed, because that is what the user needs to re-decide. If all three hold, record
-      it under *Verified fine* naming the plan entry, so the next round does not re-litigate it.
-    - **Built**: is the case reachable from a real caller at all, and is the mechanism proportionate to
-      it? Complexity with no reachable case is a finding in its own right — dead defences carry their
-      own failure modes, and their tests pass whatever the production code does. A mechanism the plan
-      never priced is worth flagging even when it works.
-      **"The user decided" is not an answer to either.** The user decided against what they were told;
-      showing the telling was wrong reopens it. What you must not do is re-argue a decision whose inputs
-      you checked and found true — that is the finding nobody can act on.
-
-## Output
-
-Write findings to `.dev/reviews/<KEY>.md`, categorized so the user knows what must change vs what's optional:
+## Output — `.dev/reviews/<KEY>.md`
 
 ```markdown
 # <KEY> — review
 Diff: origin/<default>...<branch> @ <branch HEAD sha>
+Tests at shipping commit: <command> exit <n> (<count>)   Build: <command> exit <n>
 Context: subagent (<n> reviewers, lenses: <...>) | fresh-session | same-session (weaker)
 
 ## Blocking (must fix before MR)
-- B1: <file>:<line> — <problem> — <why it matters, with a concrete failure scenario>
-  <if several reviewers found it independently, or if they disagreed and how you resolved it>
-  Resolution: <left empty by review; filled by ticket-build as `fixed <sha>`, `waived — <reason>`, or `escalated — <question, owner>`>
+- B1: <file>:<line> — <problem> — <concrete failure scenario> — <reached from <caller> | mechanism only>
+  <convergence or disagreement note>
+  Resolution:
 
 ## Should fix
 - S1: ...
@@ -91,45 +66,34 @@ Context: subagent (<n> reviewers, lenses: <...>) | fresh-session | same-session 
 
 ## Nitpick / optional
 - N1: ...
+  Resolution:
+
+## Suggested fix batches
+<!-- ticket-build works S/N in these batches, one approval cycle each; B always one per cycle -->
+- Batch 1 (same file/concern): S1, S3, N2
+- Batch 2: N1, N4, N5
 
 ## Acceptance criteria check
-- [x] <criterion> — satisfied by <file>, demonstrated by <test/command>
-- [ ] <criterion> — satisfied by <file> but NOT demonstrated (requires-manual-run, unexecuted)
-- [ ] <criterion> — NOT addressed → also listed as a Blocking finding
+- [x] AC1 — satisfied by <file>, demonstrated by <test/command>
+- [ ] AC2 — satisfied by <file> but NOT demonstrated (requires-manual-run, unexecuted)
+- [ ] AC3 — NOT addressed → B<n>
 
 ## Verified fine (recorded so it is not re-derived)
-- <thing that looked suspicious and was checked, with the conclusion>
+- <plan entry or suspicious thing checked, with the conclusion>
 ```
 
-Each finding gets an ID and an empty `Resolution:` line — that line is the ledger `ticket-build` fills in fix mode and the thing to check before the branch goes to a merge request. Three states close it: `fixed <sha>`, `waived — <reason>`, and `escalated — <question, owner>` for a finding that turns out to need a product decision. Escalated is still open: without it, a finding awaiting the user's call is indistinguishable from one nobody acted on. The review file stays local and uncommitted: both phases read it from the working tree, and human reviewers learn about waived findings from the MR description, which must quote them verbatim. Findings from an automated review don't belong in the team's history.
+Every finding has an ID and an empty `Resolution:` line — the ledger `ticket-build` fills (`fixed <sha> — <subject>`, `waived — <reason>`, `escalated — <question, owner>`; escalated is still open). The file stays local and uncommitted; human reviewers learn about waived findings from the MR description.
 
 ## Handing the branch off for a merge request
 
-This workflow stops at a reviewed branch — opening the merge request is the user's action. Before
-telling them it is ready, confirm these mechanically and report any that fail rather than rounding
-up to "ready":
+Opening the MR is the user's action. Before saying "ready", confirm mechanically and report any failure:
 
-- **Tests green**, using the command the plan names, run against the exact shipping commit with a clean tree.
-- **Every blocking finding has a non-empty `Resolution:` line** — `fixed <sha>`, `waived — <reason>`, or `escalated — <question, owner>` — in `.dev/reviews/<KEY>.md` and, if it exists, in `.dev/mr-comments/<KEY>.md`. An empty line on a blocker means the fix loop is not done. Don't accept a verbal "it's handled" in place of the ledger.
-- **Every `requires-manual-run` acceptance criterion has actually been executed by a human**, with the plan's **Verification status** saying so. A fix whose central criterion was never run should not reach a merge request on the strength of unit tests alone — name it and say the branch is blocked on it.
+- Tests and build green at the exact shipping commit with a clean tree (the parent's run above).
+- Every blocking finding has a non-empty `Resolution:` in `.dev/reviews/<KEY>.md` and, if present, `.dev/mr-comments/<KEY>.md`. A verbal "it's handled" does not count.
+- Every `requires-manual-run` criterion executed by a human, with the plan's *Verification status* saying so.
 
-Then give the user what the MR description needs, since these artifacts are local and never reach a
-reviewer: what changed and why, the commands that were run and what they proved, what was *not*
-verified and why, and **any waived blocking finding quoted verbatim with its reason** — a human
-reviewer has to see what was consciously skipped. **The same goes for every case the plan priced and
-left unhandled**, with its likelihood and its recovery: it never became a finding, so nothing else
-carries it out of the local artifacts, and the human reviewer is the last person who can overrule a
-call the workflow made about their codebase. Keep the Jira key in the branch, the commits and
-the MR title; that is what drives the GitLab↔Jira link.
+Then give the user the MR description material, since the artifacts never reach a reviewer: what changed and why, commands run and what they proved, what was not verified and why, **every waived blocking finding quoted verbatim with its reason**, and every case the plan priced and left unhandled with its likelihood and recovery. Keep the Jira key in branch, commits and MR title.
 
 ## Boundaries
 
-Do not fix the issues here — reviewing and fixing in one pass reintroduces the anchoring problem. Hand the findings to `ticket-build` (fix mode), then re-review the fix commits or open the merge request yourself. Re-reviews can be scoped to the fix commits plus any finding marked waived.
-
-**A large fix batch needs a re-review, not a spot check.** When a fix pass resolves several blocking findings across different layers, the result is a substantial new change written by the same agent — the exact situation this phase exists for. Re-review it properly, with fresh reviewers.
-
-**Point the test-quality traps at the tests the fix pass itself wrote.** A fix closing a blind-test finding is a prime site for a new blind test, and this happens in practice: a finding about tests that could not fail gets answered with a fresh assertion that also cannot fail — the same defect, one round later, inside its own remedy.
-
-**Re-run the decisive test against the exact shipping commit, with a verified-clean tree.** Suites run against the working tree that *preceded* each commit leave no artifact for the code that ships, and "the implementer reported it green" is not the same claim. Check `git status` and `git diff HEAD` are empty, note the sha you ran at, and say plainly which criteria were demonstrated against it and which rest on a report.
-
-**Feed recurring findings back into `ticket-plan`.** If a whole class of defect keeps surfacing here — platform coverage, untested glue, criteria that were never demonstrated — the cheap fix is a question in the plan gate, not a sharper review. A defect caught at design costs a paragraph; the same defect caught here costs a fix-and-re-review cycle.
+Do not fix issues here. Hand findings to `ticket-build` (fix mode). A fix pass across several findings or layers gets a proper re-review with fresh reviewers, scoped to the fix commits plus anything waived; point the test-quality traps at the tests the fix pass wrote. Re-run the decisive test at the exact shipping commit with a verified-clean tree. If a class of defect keeps surfacing here (platform coverage, untested glue, undemonstrated criteria), propose a question for `ticket-plan`'s gate — a defect caught at design costs a paragraph.

@@ -5,197 +5,117 @@ description: Turn a Jira ticket into a technical plan before any code is written
 
 # ticket-plan
 
-Produce a technical plan from a Jira ticket. Output design, tasks, and a test strategy to `.dev/plans/<KEY>.md`. **Do not write production code in this phase** — the goal is a plan another phase (or a fresh agent) can execute without re-deriving the thinking.
+Produce a technical plan from a Jira ticket: design, tasks and test strategy, written to `.dev/plans/<KEY>.md`. **No production code in this phase.** The plan is a contract that a fresh agent executes without re-deriving the thinking (the README explains why the phases are separate).
 
-## Why this phase is separate
+## The plan is a contract, not a journal
 
-An agent that has already started coding rationalizes its own design. Planning as its own pass, with a written artifact, forces the tradeoffs into the open and gives every later phase a contract to check against.
+`.dev/plans/<KEY>.md` holds only what later phases check against: status, criteria, design, tasks, test strategy, clarifications, gate result. **Keep it under ~250 lines.** Evidence, run records, by-hand procedures and build notes go to `.dev/build/<KEY>.md` (written by `ticket-build`), never into the plan. Every phase re-reads the plan, and every reviewer gets a copy; a plan that doubles as a log costs tens of thousands of tokens per session and buries the contract.
+
+## Reading budget
+
+Applies to every step below. Outline before reading: `grep -n` for headings, signatures and the symbols you need, then read only the ranges that matter. Never read more than ~200 lines of a file without a line range, and never `cat` a whole file to "get a feel for it". Use the Read and Grep tools over Bash `cat`/`rg` where available — their output is capped. Use subagents for breadth (where things live, what conventions exist: `file:line` plus a one-line characterization, **never** verbatim dumps), then read the two or three load-bearing files yourself. Never sleep-poll a subagent: launch it, do non-overlapping work or end the turn.
 
 ## Steps
 
-1. **Fetch the ticket.** Use the Atlassian connector (`Atlassian:getJiraIssue`, or `Atlassian:searchJiraIssuesUsingJql` if you only have a description). Read the description, acceptance criteria, comments, and linked issues.
+1. **Fetch the ticket** (`Atlassian:getJiraIssue`, or `searchJiraIssuesUsingJql` from a description): description, acceptance criteria, comments, linked issues.
 
-2. **Restate the problem in your own words.** One short paragraph: what outcome the ticket wants and why. This catches misreadings early. List the acceptance criteria explicitly; if the ticket has none, derive candidate criteria and flag that you did.
+2. **Restate the problem** in one short paragraph — the outcome wanted and why. List the acceptance criteria explicitly; if the ticket has none, derive candidates and flag that you did.
 
-3. **Interrogate the ticket for gaps.** Jira tickets are written for humans with shared context; assume that context is missing here and hunt for it explicitly. Check each of these and note what the ticket does NOT say:
-    - **Scope edges** — what's explicitly out of scope? Does "fix X" include the adjacent Y everyone mentally bundles with it?
-    - **Acceptance criteria quality** — are they testable as written, or vibes ("should be faster", "handle errors better")?
-    - **Unhappy paths** — does the ticket only describe the success case? What should happen on invalid input, timeout, partial failure?
-    - **Data & compatibility** — existing data to migrate? API/contract consumers who'd break? Backwards compatibility expected?
-    - **Non-functionals** — any implied performance, security, or resource constraints the ticket never states?
-    - **Environment** — which environments/configs does this apply to? Feature-flagged or straight in?
-    - **Dependencies** — does this silently depend on another ticket, a team decision, or an external system?
+3. **Interrogate the ticket for gaps.** Note what it does NOT say about: scope edges (is adjacent Y bundled with "fix X"?); acceptance-criteria quality (testable, or "should be faster"?); unhappy paths (invalid input, timeout, partial failure); data and compatibility (migration, contract consumers, backwards compatibility); non-functionals (performance, security, resources); environment (which configs, feature-flagged or not); dependencies (another ticket, a team decision, an external system).
 
-4. **Read the code, don't imagine it.** Explore the affected modules, existing patterns, and neighbouring tests. Note the files and components the change will touch. A plan that names real files and existing conventions is worth ten that describe an idealized codebase. This step also filters the question list from step 3: anything the codebase itself answers (an existing convention, a config that already dictates the choice) gets answered here and noted — never forwarded to the user as busywork.
+4. **Read the code, don't imagine it.** Explore the affected modules, existing patterns and neighbouring tests; name the real files the change touches. Anything the codebase already answers (a convention, a config that dictates the choice) is answered here and noted — never forwarded to the user as busywork.
+   - **Local state too**: untracked config, credentials, a database, a running container — look at the real artifact's **shape, not its contents** (key names, mount points, table names; values redacted).
+   - **Reusing an existing call in a new role?** Read its return contract — documented semantics, and the implementation if the docs are thin. Prior correct use elsewhere proves nothing about the new use.
 
-   **This includes local state, not just source.** If the change reads or writes anything outside version control — untracked config, local credentials, a database, a running container, fixture data — look at the real artifact before designing against an imagined one. Read its **shape, not its contents**: key names, mount points, table names, values redacted, since untracked config is exactly where secrets live. Designing against an imagined config is how a plan ends up telling the developer to run a command that destroys their credentials.
+5. **Clarification gate — ask, don't assume.** Collect everything still open from steps 2-4 into **one** numbered round before designing anything. For each question: why it matters (what changes in the design), and the plausible options so the user can answer fast. A second round only if an answer opens a new question.
+   - You may choose only when the user says "you decide" / "doesn't matter" — and you record both the choice and that it was delegated.
+   - Information only the ticket author can supply: say so and offer to draft the Jira comment (`Atlassian:addCommentToJiraIssue`); don't design around the hole.
+   - Nothing open? Say "no open questions — ticket plus codebase answer everything" rather than inventing some.
+   - **Vocabulary is a clarification item.** Every name the design introduces (class, concept, event, state) must derive from a term in the ticket or the codebase. A term found in neither is proposed here with alternatives; it is never coined silently. Invented words ("gate", "arm") have cost whole review rounds.
 
-   **When the design reuses an existing call in a new role, read its return contract.** Not its
-   signature — its documented semantics, and the implementation if the docs are thin. A call that is
-   correct for the job it already does can be wrong for the new one, because what it hands back is
-   normalised, filtered or reordered in a way the existing use never depended on. Prior correct use
-   elsewhere in this repo proves nothing about the new use.
+   Every answer goes in the plan's **Clarifications** section (question, answer, who decided). An unstated assumption in a plan is a bug, like a hardcoded secret in code.
 
-   **Split the reading: agents for breadth, yourself for depth.** Use subagents to find *where* things live and what conventions exist — file:line plus a one-line characterization, explicitly **not** verbatim file dumps, which cost heavily and still won't be precise enough to design from. Then read the two or three load-bearing files directly. Deciding that split up front avoids the common waste of paying for a long agent report and re-reading the same files anyway. Never sleep-poll for a subagent; launch it, then do non-overlapping work or end the turn.
+6. **Design.** The approach, at least one rejected alternative and why, risky assumptions, and what ripples (schema, contracts, config/secrets, migration). Decisions only — no line-by-line code. Three rules on how it is written down:
+   - **Decision tables go over the predicates the code will evaluate, not prose state names.** Prose silently merges states the code must keep apart ("nothing to look at" vs "something, none matched").
+   - **If the change makes one class or member the odd one out among its siblings, follow the sibling convention or write down why not.** The usual fix is the missing declaration, not a workaround at one call site.
+   - **Write down the invariants the design leans on that the code does not state** — an order of calls, a precondition established elsewhere — naming the caller that guarantees it and the ordering that would break it. Otherwise a reviewer files a defect for a state no caller can produce.
 
-5. **Clarification gate — ask, don't assume.** This is a hard rule for this phase: **do not resolve any remaining ambiguity by picking an interpretation yourself.** Collect everything still open from steps 2-4 into a single structured question round and put it to the user before designing anything:
-    - Number each question, state why it matters (what changes in the design depending on the answer), and — where you can — offer the plausible options so the user can answer fast.
-    - Batch them: one round of questions beats a drip-feed. Only ask a second round if an answer genuinely opens a new question.
-    - If the user explicitly answers "you decide" or "doesn't matter" to a question, only then may you choose — and you record the choice AND that it was delegated.
-    - If the ticket is missing information only its author or a stakeholder can supply, say so plainly and offer to draft the Jira comment asking for it (`Atlassian:addCommentToJiraIssue`) — don't design around the hole.
-    - If, unusually, steps 2-4 leave nothing open, say that explicitly ("no open questions — the ticket plus the codebase answer everything") rather than inventing questions to appear thorough.
+   **Price every defensive mechanism and let the user decide.** For each retry, fallback, catch-up pass, lock, reconciliation loop or cache: **how the case is reached**, **how likely it is**, **what happens if nothing handles it**. Put it in the clarification round with a recommendation; **do not decide in either direction.** The decision is recorded as designed-in or as a known residue under *Ticket gaps flagged, not blocking* with its likelihood and recovery. Unpriced defences arrive with their own tests, failure modes and maintenance.
 
-   Every answer gets recorded in the plan's **Clarifications** section: question, answer, who decided. The plan must be executable by someone who never saw this conversation, so the answers live in the artifact, not the chat scrollback. A plan containing an unstated assumption is a planning bug, exactly like a hardcoded secret is a coding bug.
+7. **Break into ordered tasks** with dependencies; each independently verifiable, small enough to review, and the branch green after each. No standalone "write the tests" task — tests belong to the task they cover. Two tasks that cannot be split without an inconsistent intermediate state are one task.
 
-6. **Design.** Propose the approach. Name at least one alternative and why you rejected it. Call out risky assumptions and anything that could ripple (schema changes, API contracts, config/secrets, migration). Keep it to the decisions — no line-by-line code.
+8. **Test strategy.** Per risky path: what to test, at which level, and the concrete command, scoped as narrowly as still covers the change. Name the build/compile command separately (a green suite is not proof it compiles). Every bound, cap or truncation the design introduces needs a named test at its boundary. Tag **every** acceptance criterion as **demonstrable-by-test** (name the test or command) or **requires-manual-run** (say exactly what a human has to do). `ticket-build` may not report completion with a manual criterion unexecuted; if the criterion the ticket exists for is manual, lead with that in the chat summary.
 
-   Three rules about how the design is *written down*, all of which have let real defects through:
-
-    - **Decision tables go over the predicates the code will evaluate, not over prose state names.**
-      If the approach turns on more than two outcomes, name each row as the expression that selects it
-      rather than as an English description. Prose silently merges states the code must keep apart — a
-      row phrased as an absence readily conflates "there was nothing to look at" with "there was
-      something and none of it matched", which usually need different handling — and the
-      implementation then treats them identically.
-    - **If the change makes one class or member the odd one out among the siblings that share its
-      role, either follow the sibling convention or write down why not.** Deviating from an
-      established pattern is a strong signal the fix belongs at a different level. When every sibling
-      carries a declaration and one does not, the fix is usually that missing declaration rather than a
-      workaround bolted onto one of the outlier's call sites — a workaround fixes the site you were
-      looking at and leaves the others broken.
-    - **Write down the invariants the design leans on that the code does not state.** Where
-      correctness rests on what a caller guarantees rather than on what the class enforces — an order
-      of calls, a precondition established elsewhere, a state one component can only be in because
-      another put it there — say so, name the caller that guarantees it, and name the ordering that
-      would break it. An unstated invariant is invisible to every later phase: a reviewer reads the
-      class alone, correctly concludes the bad state is expressible, and files a defect; the fix
-      adds machinery to defend against something that cannot happen. Recording it once costs a
-      sentence and settles the question for good.
-
-   **Price every defensive mechanism, and let the user decide whether to buy it.** A retry, a
-   fallback, a catch-up pass, a lock, a reconciliation loop, a cache — each exists for one case, and
-   each is worth its cost only if that case is likely enough and its consequence bad enough. For every
-   one in the design, write three things down: **how the case is reached**, **how likely it is**, and
-   **what happens if nothing handles it**. If the honest answers are "a window of a few seconds",
-   "needs a second user action inside it", and "recoverable on the next ordinary operation", the
-   mechanism is probably not worth building — but that is **not your call to make in either
-   direction**. Put it in the clarification round of step 5 with those three answers and a
-   recommendation, and let the user rule. Whatever they decide goes in the plan: designed in, or named
-   under *Ticket gaps flagged, not blocking* as a known residue with its likelihood and its recovery.
-
-   This is the cheapest place in the workflow to make that call. Unpriced defences do not merely cost
-   the code that implements them: they arrive with their own tests, their own failure modes and their
-   own maintenance, and they are argued about at review by people who no longer have the numbers. A
-   guard added for a narrow window has introduced a worse bug than the one it prevented — an
-   unbounded retry where the bounded original had none.
-
-7. **Break into ordered tasks** with dependencies. Each task should be independently verifiable and small enough to review. Order them so the branch stays green after each.
-
-   Two rules that keep the task list honest:
-    - **No standalone "write the tests" task.** Test work belongs to the task whose code it covers, because `ticket-build` writes tests alongside the code. A bundled TASK-N "Tests" guarantees the two phases contradict each other and that tests get written last, or not at all.
-    - **If two tasks cannot be split without an inconsistent intermediate state, make them one task.** Splitting a change whose halves only make sense together produces a commit that is broken by construction — sometimes a transient instance of the very bug being fixed.
-
-8. **Test strategy, and mark what can actually be proven.** For each risky path, say what to test and at what level (unit / integration). Name the concrete command this project uses, scoped as narrowly as still covers the change — a single module or suite beats the whole build when the toolchain allows it. Name the build/compile command too, separately: in many toolchains a green suite does not prove the project compiles for shipping. Define what "done" means beyond "it compiles".
-
-   **Every bound, cap, limit or truncation the design introduces needs a named test at its
-   boundary.** A limit is always introduced against a stated risk; if you cannot name the test that
-   exercises it at the limit, the rationale is decoration. A cap whose only fixture sits below its
-   threshold never runs the branch it exists for, and the suite stays green if the bound is deleted.
-
-   Then tag **every acceptance criterion** as one of:
-    - **demonstrable-by-test** — an automated check can prove it; name the test or command.
-    - **requires-manual-run** — only a human executing the app can prove it (needs Docker, a licence, a dataset, real hardware, a GUI). Say exactly what the person has to do.
-
-   Be honest about the second category rather than hiding it behind a test that merely *approximates* the criterion. This tag is what stops an undemonstrated fix from travelling all the way to the merge request: `ticket-build` may not report completion while a `requires-manual-run` criterion is unexecuted. If the criterion the whole ticket exists for lands in that category, say so in the chat summary — it is the most important thing the user needs to know.
-
-9. **Write the artifact** to `.dev/plans/<KEY>.md` using the template below, then **make sure `.dev/` is git-excluded before anything in this workflow touches git.** Run `git check-ignore -q .dev`; if it doesn't match, append to the target repo's `.git/info/exclude`:
-
-   **If the harness is in plan mode**, it may restrict edits to its own plan file, so `.dev/plans/<KEY>.md` cannot be written yet. Write the plan to the harness path, and the moment the plan is approved and edits are permitted, write the same content to `.dev/plans/<KEY>.md` — that is the path `ticket-build` and `ticket-review` read. Do not consider this phase finished until that file exists; a plan only the harness can see is invisible to every later phase.
+9. **Write the artifact** to `.dev/plans/<KEY>.md` (template below), then ensure `.dev/` is git-excluded: `git check-ignore -q .dev`; if it fails, append to `.git/info/exclude`:
 
    ```
    # ticket-flow workflow artifacts (local only)
    .dev/
    ```
 
-   `.git/info/exclude` rather than `.gitignore` because that file is itself per-clone and never committed, so the workflow leaves no trace in the team's repo and `.dev/` stays invisible to `git add -A`, to reviewers and to the MR diff. The trade-off: the artifacts live only in this working tree, so a fresh session **on this machine** can resume mid-workflow by reading them, while a different clone cannot — there, re-run `ticket-plan` or copy the file across.
+   Per-clone and never committed, so the workflow leaves no trace in the repo; the trade-off is that artifacts live only in this working tree. **In harness plan mode**, write to the harness path and, once edits are permitted, copy the same content to `.dev/plans/<KEY>.md` — the phase is not done until that file exists.
 
-10. **Gate the plan before handing it off.** Spawn a subagent (the Task tool in Claude Code) whose prompt contains *only* the raw ticket text and the plan file — none of this conversation — and ask it exactly six questions:
-- For each acceptance criterion, which part of the design satisfies it? Name any criterion with no answer.
-- What is the most likely failure mode of the chosen approach?
-- Is anything in the plan untestable as specified?
-- Does the design rely on any interpretation of the ticket that is NOT recorded in the Clarifications section? (A smuggled assumption is a blocking finding.)
-- **Does the design hold on every platform, mode and environment this repo supports?** Check the repo's own docs for the supported matrix (OS, deployment mode, packaged vs dev). Name any combination where the design fails or is untested. Shell invocation, path separators, container behaviour and filesystem semantics are the usual offenders.
-- Does the plan contradict itself? Name any two statements in it that cannot both be true.
-- **Does any mechanism in the design cost more than the case it handles?** For each retry, fallback,
-  catch-up pass, lock, cache or reconciliation step, name the case it exists for, how that case is
-  reached, and what would happen without it. Flag every one whose cost is out of proportion to its
-  case, and every one whose case the plan never states.
+10. **Gate the plan.** Spawn a subagent whose prompt contains **only** the raw ticket text and the plan path — none of this conversation — with exactly these questions:
+    - For each acceptance criterion, which part of the design satisfies it? Name any with no answer.
+    - What is the most likely failure mode of the chosen approach?
+    - Is anything untestable as specified?
+    - Does the design rely on an interpretation of the ticket not recorded in Clarifications? (A smuggled assumption is blocking.)
+    - Does the design hold on every platform, mode and environment the repo supports (check the repo's own docs for the matrix)? Shell invocation, path separators, container and filesystem semantics are the usual offenders.
+    - Does the plan contradict itself? Name two statements that cannot both be true.
+    - Does any mechanism cost more than the case it handles? Flag every one whose case the plan never states.
 
-Fold blocking answers back into the plan before finishing — but **verify each one against the code first**, since the gate can confidently report intended behaviour as a defect; note any you rejected and why. **A finding that asserts an absence — "nothing tests this", "there is no caller", "this key is unused" — is verified by a repo-wide search, not by opening the one file the finding names.** A negative confirmed in a single file is not confirmed, and acting on one adds work that was already done elsewhere. This is the cheapest review in the workflow: a design flaw caught here costs a paragraph, the same flaw at code review costs a rewrite, and after merge it costs a broken build for everyone on the unlucky platform.
+    Fold blocking answers back **after verifying each against the code** — the gate can report intended behaviour as a defect, and a finding that asserts an absence ("nothing tests this", "no caller") is verified by a repo-wide search, not by opening one file. Note what you rejected and why. Record in *Plan gate* which version the gate read (sha or file timestamp); **re-gate the changed sections** after any material change (a reversed clarification, a reshaped decision table, a new error path or contract, a swapped mechanism). If subagents are unavailable, ask the user to run the questions in a fresh conversation.
 
-**Record which version of the plan the gate actually read** — a commit sha, or the timestamp of the
-file when you launched it — in the plan's *Plan gate* section. If the plan changes materially
-afterwards, **re-run the gate on the changed sections before handing off**: a Clarifications answer
-that reverses, a decision table that changes shape, a new error path or public contract, or a
-mechanism swapped for a cheaper one. A gate result describes the document it read, not the plan
-that ships. This is not hypothetical bookkeeping: a post-gate rewrite that swaps a mechanism for a
-cheaper one can introduce the very defect the gate exists to catch, and the eventual fix can turn
-out to be a return to the approach the gate already saw and approved.
-
-If subagents aren't available, ask the user to run these questions in a fresh conversation against the plan file.
-
-11. Give the user a 4-6 line summary in chat, the gate's findings, and any open questions.
+11. **Chat summary**: 4-6 lines, the gate's findings, open questions. Point the user at `ticket-build` and remind them the plan is editable — cheaper to fix now than after implementation.
 
 ## Plan template
 
 ```markdown
 # <KEY> — <ticket title>
 Jira: <link>
+Status: planned | building TASK-nn | in review | fixing findings   Branch: <KEY>   Last commit: <sha or none>
+Open findings: <n blocking / n should-fix> in .dev/reviews, <n> in .dev/mr-comments   Build log: .dev/build/<KEY>.md
 
 ## Problem
 <one paragraph, your words>
 
 ## Acceptance criteria
-<!-- tag every criterion: how it will be proven -->
-- [ ] <criterion> — *demonstrable-by-test*: <test or command>
-- [ ] <criterion> — *requires-manual-run*: <exactly what a human must do>
+- [ ] AC1 <criterion> — *demonstrable-by-test*: <test or command>
+- [ ] AC2 <criterion> — *requires-manual-run*: <exactly what a human must do>
 
 ## Design
 <approach, chosen over <alternative> because ...>
 Affected: <files / components>
+Vocabulary: <each new name → the ticket/codebase term it derives from>
 Risky assumptions: <...>
-Defences priced: <mechanism → the case it handles → how likely → what happens without it → build it or
-leave it, and who decided>
-Platforms / modes checked: <where this was reasoned through, and where it was not>
+Invariants relied on: <invariant → guaranteed by <caller> → broken by <ordering>>
+Defences priced: <mechanism → case → likelihood → without it → build or leave, decided by>
+Platforms / modes checked: <where reasoned through, where not>
 
 ## Tasks
-<!-- tests belong to the task they cover; no standalone "write the tests" task -->
 1. [ ] TASK-01 — <what> (depends on: none)
 2. [ ] TASK-02 — <what> (depends on: TASK-01)
 
 ## Test strategy
 - <path/behaviour> → <unit|integration>, run with `<command>`
-- Build/compile command (a green suite is not proof it compiles): `<command>`
+- Build/compile command: `<command>`
 - Done when: <criteria beyond compiling>
 
 ## Verification status
-<!-- maintained by ticket-build; the plan is not done until this is honest -->
-- Demonstrated: <what was actually observed to work, and how>
-- Not demonstrated: <every requires-manual-run criterion still unexecuted>
+<!-- one line per criterion, maintained by ticket-build; evidence lives in the build log -->
+- AC1: demonstrated by <test/command> | not demonstrated
 
 ## Clarifications
-<!-- every ambiguity found in analysis, with its resolution — no unstated assumptions allowed -->
-- Q1: <question> → <answer> (decided by: user | ticket author via Jira comment | delegated to Claude by user)
-- <or: "No open questions — ticket + codebase answered everything.">
+- Q1: <question> → <answer> (decided by: user | ticket author | delegated)
 
 ## Ticket gaps flagged, not blocking
-- <things the ticket doesn't cover that were deemed out of scope, so nobody rediscovers them later>
+- <out-of-scope things, and priced residues with likelihood and recovery>
 
 ## Plan gate
-- Gate read: <plan version the gate saw — sha or timestamp>; re-gated after: <material changes since, or "none">
-- <finding from the gated review, and how the plan was adjusted — or "no blocking findings">
+- Gate read: <sha or timestamp>; re-gated after: <changes, or "none">
+- <finding and adjustment — or "no blocking findings">
 ```
 
 ## Boundaries
 
-Do not create a branch, write production code, or touch Jira status here. Never stage, commit, or `git add -f` anything under `.dev/` — it is a local scratch folder in every phase of this workflow, and force-adding it defeats the exclude entry step 9 just wrote. Do not design past an unanswered blocking question — waiting on the user is the correct behavior in this phase, not a failure to make progress. End by pointing the user at `ticket-build` once the plan looks right — and remind them the plan is editable; a plan they disagree with is cheaper to fix now than after implementation.
+No branch, no production code, no Jira status change. Never stage, commit or `git add -f` anything under `.dev/`. Do not design past an unanswered blocking question — waiting on the user is correct here. Do not put evidence or run records in the plan; that is `ticket-build`'s log.
