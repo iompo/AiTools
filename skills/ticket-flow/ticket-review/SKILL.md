@@ -23,6 +23,8 @@ Reviewers used to end at 350k+ tokens of context each because every one re-read 
 4. **Test and build results**: the parent runs the plan's test and build commands **once**, at the shipping commit with a verified-clean tree (`git status` and `git diff HEAD` empty), and writes exit status, counts and sha to a file. Reviewers do **not** re-run suites or builds; they run targeted mutations only, on the files of their lens, each in its own worktree (`isolation: "worktree"`; if unavailable, one at a time with the tree verified restored between them).
 5. **Orientation block**: neutral structural facts only — module layout, entry points, where the platform matrix is documented. No conclusions, no suspicions, no "check X".
 
+**Record each reviewer's cost.** The Agent tool reports tokens per subagent (`subagent_tokens`); write them on the review's `Reviewer cost` line. The reviewers share the same start-up overhead, so compare them with each other: one well above the rest → name its oversized input on the same line (its diff file's `wc -l`, a suite it re-ran, a file it read whole) — that is the input to shrink next time. The budget itself is judged by `ctx-report.py`.
+
 **Recorded decisions are passed as claims to test, not as context.** The plan carries the implementer's reasoning: priced defences, residues "deliberately not handled (user decision)", waived lines. State each neutrally in the reviewer prompt — "verify: how is this case reached, how likely, what happens if nothing handles it" — never as settled. A reviewer told the answer confirms it; a reviewer given the question checks it.
 
 ## What reviewers check
@@ -54,6 +56,7 @@ Reviewer output is evidence, not verdict.
 Diff: origin/<default>...<branch> @ <branch HEAD sha>
 Tests at shipping commit: <command> exit <n> (<count>)   Build: <command> exit <n>
 Context: subagent (<n> reviewers, lenses: <...>) | fresh-session | same-session (weaker)
+Reviewer cost: <lens> <n>k · <lens> <n>k · <lens> <n>k (one well above the rest → <oversized input>)
 
 ## Blocking (must fix before MR)
 - B1: <file>:<line> — <problem> — <concrete failure scenario> — <reached from <caller> | mechanism only>

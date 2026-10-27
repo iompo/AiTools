@@ -80,4 +80,43 @@ Invoke by intent: "plan PROJ-123", "ticket-build PROJ-123 TASK-03", "review PROJ
 - **Seeded-defect test**: plant three flaws in a real branch; review once in the implementing conversation, once through the context-restricted reviewers. If the restriction doesn't catch more, drop it.
 - **Plan-gate yield**: count gate findings over 4-5 tickets that would otherwise have required code changes.
 - **The number that matters**: blocking comments from *human* MR reviewers per ticket, before vs after.
-- **Cost check**: context size at the end of a `ticket-build` session should stay well under 200k tokens; a review's three subagents should each stay under ~150k. If not, the plan has turned back into a journal or the reviewers are re-running suites.
+- **Cost check — measured, not eyeballed.** What you pay is the sum, over every API call, of what the model reads and writes: it is driven by **turns × context**, plus cache **rewrites** (the cache expired during a long pause, the model was switched, the session compacted). `tools/ctx-report.py` reports that sum per session and per subagent. Two guard rails catch the structural failures:
+  - **Context growth** — peak context minus the first turn. Cost tells you how much; growth tells you why, and it is also the quality guard: a context full of stale diffs and test output makes the model less reliable at any price. Growth rather than peak because the first turn is fixed overhead (system prompt, tools, MCP servers, CLAUDE.md) that differs between setups and that no rule in these skills can change. Provisional budgets: a `ticket-build` session grows by less than **~200k**, **each** subagent by less than **~150k** — the old peak figures, kept only until your own data replaces them. Once `.dev/cost.tsv` holds ten sessions of a phase, `--summary` prints their 90th percentile: set the budgets there, so "over" means unusual for *your* tickets. `ticket-review` writes each reviewer's tokens into the review header.
+  - **No auto-compaction in a build session.** Not because compaction is expensive — it usually makes the following turns cheaper — but because it means the task outgrew a session and the model is continuing from a summary it didn't choose. A manual `/compact` at a clean point is fine; `/clear` at a task boundary is better, because the artifacts restart the next session without loss.
+
+  There is deliberately no cost budget yet: let `.dev/cost.tsv` collect a few tickets, then set one from the data. When a number is off, it points at one cause:
+
+  | Symptom | Usual cause | Fix |
+  |---|---|---|
+  | build growth high | plan over ~250 lines, or the build log read whole | move evidence to the build log; read only the task's section |
+  | build session auto-compacted | the task is too big for one session | split it; record the split as plan drift |
+  | build growth climbs in steps | test/build output printed into context | redirect it to a file; read the exit status, summary and failures |
+  | many turns at high context | one tool call per turn | batch independent reads, greps and git queries into one turn |
+  | rewrites a large share of cost | model switched mid-session; several long pauses | switch models between sessions; one rewrite after you review at the approval gate is the expected price of the gate |
+  | first turn over ~50k | MCP servers, CLAUDE.md | disable servers the phase doesn't use; trim CLAUDE.md |
+  | one reviewer over | its diff isn't scoped to its lens, or it re-ran a suite | scope the diff; reviewers run targeted mutations only |
+  | every reviewer over | build log or whole-branch diff handed to all | plan + per-lens diff only |
+
+## Measuring cost
+
+`tools/ctx-report.py` (Python 3, stdlib only) reads Claude Code's transcript of a session and of its subagents, detects the phase (the `ticket-*` skill invoked), and prints growth with its peak and first turn, turns, total tokens and cost, cache rewrites, auto/manual compactions, a line per subagent, and a token table per model (input, cache write, cache read, output, total). Exit status 1 when a guard rail is broken; the main-session budget is judged only for `ticket-build` sessions (and sessions whose phase wasn't detected), subagent budgets always. A log written by an older version of the script is set aside as `cost.<date>.old.tsv` rather than mixed in.
+
+Prices are data, not code: `tools/prices.json` holds the per-model rates copied from the [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) with the date they were checked. The cost log stores **raw token counts per model**, never dollars, so a price change is one edit to that file and `--summary` re-prices every session already logged. A model missing from the file is reported with its tokens and the cost marked `≥` (excluding it), never guessed; prices checked more than 90 days ago trigger a reminder to verify them.
+
+```bash
+python3 tools/ctx-report.py                  # latest session in the current repo
+python3 tools/ctx-report.py <session>.jsonl  # a specific one
+python3 tools/ctx-report.py --summary .dev/cost.tsv   # per ticket, at today's prices, plus p90 growth per phase
+python3 tools/ctx-report.py --main-budget 120000 --agent-budget 90000   # budgets from your p90
+```
+
+To log every session without thinking about it, install the script and add a `SessionEnd` hook to `~/.claude/settings.json`. The hook fires on `/clear`, which `ticket-build` asks for after every task, so each task session becomes one row of `.dev/cost.tsv` with its branch (the Jira key). Repos without `.dev/` are skipped; the hook never fails.
+
+```bash
+mkdir -p ~/.claude/tools/ticket-flow && cp tools/ctx-report.py tools/prices.json ~/.claude/tools/ticket-flow/
+```
+
+```json
+{ "hooks": { "SessionEnd": [ { "hooks": [ { "type": "command",
+  "command": "python3 ~/.claude/tools/ticket-flow/ctx-report.py --hook --log \"$CLAUDE_PROJECT_DIR/.dev/cost.tsv\"" } ] } ] } }
+```

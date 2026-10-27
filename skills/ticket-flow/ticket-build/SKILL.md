@@ -9,9 +9,9 @@ Turn `.dev/plans/<KEY>.md` into working, tested code on the `<KEY>` branch, **on
 
 ## Session scope and reading budget
 
-**One task (or one fix batch) per session.** The plan's status block and `.dev/build/<KEY>.md` carry everything a fresh session needs; a session that carries three tasks of history costs several times more per turn and gets compacted. When a task is approved, end with: "run `/clear`, then `ticket-build <KEY> TASK-nn`". Continue in the same session only if the user asks.
+**One task (or one fix batch) per session.** The plan's status block and `.dev/build/<KEY>.md` carry everything a fresh session needs; a session that carries three tasks of history costs several times more per turn and gets compacted. When a task is approved, end with: "run `/clear`, then `ticket-build <KEY> TASK-nn`". Continue in the same session only if the user asks. If the session was auto-compacted, say so at the gate: the task was too big for one session — propose splitting what remains.
 
-Orient from the plan's **status block and the one task you are building** — not the whole plan, and never the build log unless the task depends on an earlier task's notes. Outline files before reading (`grep -n`), read line ranges, never more than ~200 lines without one, prefer the Read/Grep tools over Bash `cat`/`rg`. Scope test runs to the module or suite that covers the change; the full suite runs once, at hand-off.
+Orient from the plan's **status block and the one task you are building** — not the whole plan, and never the build log unless the task depends on an earlier task's notes. Outline files before reading (`grep -n`), read line ranges, never more than ~200 lines without one, prefer the Read/Grep tools over Bash `cat`/`rg`. Batch independent reads, greps and git queries into one turn — every turn re-reads the whole context. Scope test runs to the module or suite that covers the change; the full suite runs once, at hand-off. Test and build output goes to a file (`<cmd> > .dev/build/<KEY>.out 2>&1; echo "exit $?"`); read the exit status, then only the summary and the failures — a build printed into context costs more than the code it tests.
 
 ## Steps
 
@@ -41,6 +41,7 @@ Orient from the plan's **status block and the one task you are building** — no
    - **Beyond the plan** — every mechanism, edge case or deviation not in the task, with its three priced answers and whether the user already ruled on it.
    - **Tests added** — a table: test name → the one production behaviour it proves → bites (yes/characterization).
    - **Proposed commit**: `<KEY>: <subject>` and the exact file list to stage.
+   - **Plan size**: `wc -l .dev/plans/<KEY>.md`. Over ~250 lines → say so and propose what moves to the build log; every later session and reviewer pays for it.
 
    Only a clear go-ahead ("approved", "commit it", "next") clears the gate; "just finish the rest" lets you proceed unattended from then on. If the user asks for changes, rework and re-present.
 
