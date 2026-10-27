@@ -24,7 +24,6 @@ The rest of this file describes the collection folder (called `claude-custom/` b
 ```
 claude-custom/
 ├── manage-skills.sh        # the management script (run this)
-├── HOW-IT-WORKS.md         # optional: a copy of this README, for agents reading the folder
 ├── .gitignore              # excludes the local clone cache
 ├── .cache/                 # local git clones used by `update` (auto-managed)
 ├── tools/
