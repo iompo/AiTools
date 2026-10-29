@@ -28,7 +28,7 @@ Execute, against the real application, the manual tests that prove someone else'
    - From the acceptance criteria (derive candidates if none, and say so).
    - `git diff origin/<default>...HEAD --stat`, then read enough of the touched code to know which screens, actions or endpoints reach it. The repo's docs say how the app runs (launch commands, modes, readiness URLs, fixtures, e2e selectors). If they don't and finding out exceeds the thresholds below, that is `not-testable`, not archaeology.
    - **Decide the mode and write the reason.** Mode-specific files require that mode; shared code runs in the mode the ticket names, else the cheapest to bring up and clean (no login, database that dies with the process). "Both" means both run; a mode reasoned about but not started is `not run`.
-   - Per test: `T-nn`, criterion, mode, precondition (smallest fixture in the repo), numbered steps with selectors, **Expected as a literal written before running**, evidence to capture. Every error/cancel/invalid/timeout criterion gets its own `T-nn`. Every touched screen or endpoint gets one `T-nn` for the behaviour the ticket did not change.
+   - Per test: `T-nn`, a short title, **a one- or two-sentence summary of the case** (which behaviour it proves and why the ticket needs it — a reader who skips everything else must still understand what was tested), criterion, mode, precondition (smallest fixture in the repo, stated as the state the app is in before step 1), numbered steps with selectors — one action per line, no narration — **Expected as a literal written before running**, evidence to capture. Every error/cancel/invalid/timeout criterion gets its own `T-nn`. Every touched screen or endpoint gets one `T-nn` for the behaviour the ticket did not change.
    - Name everything you will create `ticket-test-<KEY>-Tnn`.
    - **Gate.** Present the table, the mode decision, the environment to start, and — if any mode keeps its data — that the run ends with the repo's dispose task and exactly what it deletes. Wait for a go. "Just run it" / "go" at invocation skips the wait **except when a mode keeps its data**: the dispose task runs only after the user has seen what it deletes.
 
@@ -42,15 +42,15 @@ Execute, against the real application, the manual tests that prove someone else'
 
    **"Changing the code"** means any write to a tracked file or a file the app reads at runtime (source, properties, `.env`, flags, build scripts, container or IdP definitions, fixtures, the exclude file beyond the `.dev/` line), plus `git checkout -- <file>`, `git apply`, config-rewriting tasks, and env vars the app reads unless the user typed the value. Running an existing build/serve configuration is not. The one exception is the dispose task, as step 7 says.
 
-5. **Verdict per test**: `pass` · `fail — <divergence quoted from Observed>` · `blocked — <what is missing, who was asked>` · `not-testable — <threshold, what it would take>`. Before writing any verdict, `ls` every path on the `Evidence:` line; a missing file downgrades to `blocked — evidence lost`.
+5. **Verdict per test**: `pass` · `fail — <divergence quoted from Observed>` · `blocked — <what is missing, who was asked>` · `not-testable — <threshold, what it would take>`. Before writing any verdict, `ls` every path in the test's `Evidence` block; a missing file downgrades to `blocked — evidence lost`.
 
-6. **Finish the artifact** — appended throughout, never written from memory at the end. Embed each screenshot under its test. **The report sits one level above the evidence folder, so links carry the folder prefix**: `![T-01 before](<KEY>/T-01-1-before.png)`, otherwise the images don't render in an editor preview.
+6. **Finish the artifact** — appended throughout, never written from memory at the end. Keep the template's layout exactly: the `## Results` table first (one row per test, verdict filled in as each test closes), then one section per test with the blocks in the fixed order **Summary → Precondition → Steps → Expected → Observed → Evidence → Verdict**, each under its own bold label with a blank line between blocks, so every test reads the same way. **Precondition is its own block, never folded into the steps.** Steps are a numbered list, one action per line, written as what was actually done (`Click **Save** — button[data-test=save]`), selector last, in backticks; a step skipped or changed from the plan says so on that line. Observed says what happened in plain words first, console and network errors after. Embed each screenshot under its test, one per line. **The report sits one level above the evidence folder, so links carry the folder prefix**: `![T-01 before](<KEY>/T-01-1-before.png)`, otherwise the images don't render in an editor preview.
 
 7. **Cleanup — walk the ledger in reverse, then the mechanical check.** Delete through the app while it runs; stop what you started the way the launcher stops it (using the stop procedure recorded in step 3, and verify the port is free, not just that the wrapper exited); restore containers to the snapshot; close tabs; remove downloads not kept as evidence; delete the scratch driver; `git checkout <original branch>`. Data the app cannot delete → the repo's documented dispose task, **only if the gate announced it**; otherwise report the residue with identifiers — never improvise `docker volume rm` or `rm -rf`.
 
    **Mechanical check, last thing in the artifact**: `git status --porcelain` empty · `git diff HEAD` empty · on the original branch · listeners match snapshot · containers match snapshot or the dispose task's documented end state · storage root matches · no scratch driver · every `L-nn` has a `Resolution:`. Any failure is reported in chat with what is still there.
 
-8. **Chat summary**: verdict table leading with the criterion the ticket exists for; report and evidence paths; what was not tested, one line each; open ledger lines with identifiers. Offer to draft — not post — a Jira comment with the table and paths. Then stop; what to do about a `fail` is the user's call.
+8. **Chat summary**: the report's `## Results` table, leading with the criterion the ticket exists for; report and evidence paths; what was not tested, one line each; open ledger lines with identifiers. Offer to draft — not post — a Jira comment with the table and paths. Then stop; what to do about a `fail` is the user's call.
 
 ## Cleanup ledger
 
@@ -70,21 +70,51 @@ Each ends in a report line with a cost estimate, never a workaround: a licence, 
 
 ```markdown
 # <KEY> — manual test run
-Jira: <link>   Tested: <sha> (<local branch <KEY> | origin/<KEY> detached>)   Original branch: <name>
+Jira: <link>
+Tested: <sha> (<local branch <KEY> | origin/<KEY> detached>) · Original branch: <name>
 Test set from: ticket acceptance criteria + diff vs origin/<default>
-Modes run: <mode(s)> — reason: <…> — readiness: env-<mode>-ready.txt   Modes not run: <mode(s)> — reason: <…>
+Modes run: <mode(s)> — reason: <…> — readiness: env-<mode>-ready.txt
+Modes not run: <mode(s)> — reason: <…>
 Environment: <launcher per mode, stop procedure, fixture, browser | desktop driver>
 Pre-existing state: <records, containers + status, listeners, storage root — never touched>
 
+## Results
+| Test | What it proves | Mode | Verdict |
+|------|----------------|------|---------|
+| T-01 | <one line> | <mode> | pass |
+| T-02 | <one line> | <mode> | fail — <divergence> |
+
 ## Tests
-### T-01 — <criterion> — mode: <…>
-Precondition: <fixture, state>
-Expected (written before running): <literal>
-Steps: 1. <action, selector> 2. …
-Observed: <what happened, including console and network errors>
-Evidence: .dev/tests/<KEY>/T-01-1-before.png, T-01-2-action.png, T-01-3-after.png, T-01-console.txt
-![T-01 before](<KEY>/T-01-1-before.png) ![T-01 action](<KEY>/T-01-2-action.png) ![T-01 after](<KEY>/T-01-3-after.png)
-Verdict: pass | fail — <divergence> | blocked — <missing> | not-testable — <threshold>
+
+### T-01 — <short title>
+**Summary:** <one or two sentences: the behaviour this case proves and why the ticket needs it.>
+
+**Criterion:** <AC-n quoted | derived — <reason>> · **Mode:** <…>
+
+**Precondition**
+- <fixture loaded, records present, screen the app is on — the state before step 1>
+
+**Steps**
+1. <action — `selector`>
+2. <action — `selector`>
+3. <action — `selector`>
+
+**Expected** (written before running)
+<literal>
+
+**Observed**
+<what happened, in plain words; then console and network errors, if any>
+
+**Evidence**
+`.dev/tests/<KEY>/T-01-1-before.png` · `T-01-2-action.png` · `T-01-3-after.png` · `T-01-console.txt`
+
+![T-01 before](<KEY>/T-01-1-before.png)
+![T-01 action](<KEY>/T-01-2-action.png)
+![T-01 after](<KEY>/T-01-3-after.png)
+
+**Verdict:** pass | fail — <divergence> | blocked — <missing> | not-testable — <threshold>
+
+---
 
 ## Not testable / too complex
 - T-nn — <threshold> — what it would take: <estimate, which file would have to change>
