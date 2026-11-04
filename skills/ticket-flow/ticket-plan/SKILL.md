@@ -5,7 +5,7 @@ description: Turn a Jira ticket into a technical plan before any code is written
 
 # ticket-plan
 
-Produce a technical plan from a Jira ticket: design, tasks and test strategy, written to `.dev/plans/<KEY>.md`. **No production code in this phase.** The plan is a contract that a fresh agent executes without re-deriving the thinking (the README explains why the phases are separate).
+Produce a technical plan from a Jira ticket: design, tasks and test strategy, written to `.dev/plans/<KEY>.md`. **No production code in this phase.** The plan is a contract that a fresh agent executes without re-deriving the thinking.
 
 ## The plan is a contract, not a journal
 
